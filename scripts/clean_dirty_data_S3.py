@@ -1,0 +1,143 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, trim, length, md5, concat_ws
+from pyspark.sql.types import IntegerType
+from pyspark.sql.types import StructType, StructField, StringType
+import boto3
+import os
+import glob 
+import shutil
+from botocore.exceptions import ClientError
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# --- AWS S3 client ---
+s3_client = boto3.client("s3")
+
+# --- CONFIGURATION / DATA CONTRACT ---
+EXPECTED_SCHEMA = StructType([
+    StructField("id", StringType(), True),
+    StructField("name", StringType(), True),
+    StructField("email", StringType(), True),
+    StructField("phone", StringType(), True),
+    StructField("zip_code", StringType(), True),
+    StructField("age", StringType(), True),
+    StructField("city", StringType(), True)
+])
+
+def download_from_s3(bucket_name, s3_file_key, local_dirty_path):
+    """Download dirty_data.csv from S3 bucket."""
+    try:
+        s3_client.download_file(bucket_name, s3_file_key, local_dirty_path)
+        logger.info(f"✅ Downloaded '{s3_file_key}' from S3 bucket '{bucket_name}'")
+    except ClientError as e:
+        logger.info(f"⚠️ Error downloading file from S3: {e}")
+        raise
+
+def delete_s3_bucket(bucket_name):
+    """Delete all contents and remove the S3 bucket."""
+    try:
+        # List and delete all objects
+        response = s3_client.list_objects_v2(Bucket=bucket_name)
+        if "Contents" in response:
+            for obj in response["Contents"]:
+                s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
+            logger.info("🗑️ All objects deleted from bucket.")
+
+        # Delete the bucket itself
+        s3_client.delete_bucket(Bucket=bucket_name)
+        logger.info(f"✅ S3 bucket '{bucket_name}' deleted successfully.")
+    except ClientError as e:
+        logger.info(f"⚠️ Error deleting S3 bucket: {e}")
+        raise
+
+def clean_data_with_spark(local_dirty_path,local_clean_folder, local_clean_path):
+    """Clean dirty CSV data using PySpark."""
+
+    spark = SparkSession.builder \
+        .master("local[*]") \
+        .appName("Clean Dirty Data") \
+        .config("spark.driver.memory", "2g") \
+        .getOrCreate()
+
+    
+    if not os.path.exists(local_dirty_path):
+        logger.error(f"❌ File not found: {local_dirty_path}")
+        return
+    
+    # Load dirty CSV data into a Spark DataFrame with the expected schema
+    df = spark.read \
+        .option("header", "true") \
+        .option("encoding", "UTF-8") \
+        .schema(EXPECTED_SCHEMA) \
+        .csv(local_dirty_path)
+
+    # Clean string fields
+    df = df.withColumn("name", trim(col("name"))) \
+           .withColumn("email", trim(col("email"))) \
+           .withColumn("phone", trim(col("phone"))) \
+           .withColumn("zip_code", trim(col("zip_code"))) \
+           .withColumn("city", trim(col("city")))
+
+    # Filter invalid data
+    df = df.filter(col("name").isNotNull() & (length(col("name")) > 0)) \
+           .filter(col("email").rlike(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")) \
+           .filter(col("phone").rlike(r"^69\d{8}$")) \
+           .filter(col("zip_code").rlike(r"^\d{5}$"))
+
+    # Convert age to integer and filter out invalid ages
+    df = df.withColumn("age", col("age").cast(IntegerType())) \
+           .filter((col("age") >= 18) & (col("age") <= 99)) \
+           .filter(col("city").isNotNull() & (length(col("city")) > 0))
+
+    # Drop id if exists
+    if "id" in df.columns:
+        df = df.drop("id")
+
+    # Create user_id hash
+    df = df.withColumn("user_id", md5(concat_ws("||", "name", "email", "phone"))) # Generate a unique user_id based on name, email, and phone
+
+    # Reorder columns
+    desired_order = ["user_id", "name", "email", "phone", "zip_code", "age", "city"]
+    df = df.select(*desired_order)
+
+    # Save locally (same logic as before) as a single CSV file with UTF-8 encoding and header
+    df.coalesce(1) \
+      .write \
+      .option("header", True) \
+      .option("encoding", "UTF-8") \
+      .mode("overwrite") \
+      .csv(local_clean_folder)
+
+    # Move the generated CSV file from the Spark output folder to the desired location
+    csv_files = glob.glob(os.path.join(local_clean_folder, "*.csv")) # Find the generated CSV file in the Spark output folder
+    if not csv_files:
+        raise FileNotFoundError(f"No CSV file found in {local_clean_folder}")
+
+    shutil.move(csv_files[0], local_clean_path) # Move the generated CSV file to the desired location
+    shutil.rmtree(local_clean_folder) # Clean up the temporary Spark output folder
+    logger.info(f"✅ Cleaned data saved locally to: {local_clean_path}")
+
+    spark.stop()
+
+def main():
+    """Main ETL workflow: Download → Clean → Delete S3."""
+    # --- AWS S3 Configuration ---
+    bucket_name = os.getenv("S3_BUCKET_NAME", "my-dirty-data-bucket")
+    s3_file_key = os.getenv("S3_FILE_KEY", "dirty-data.csv")
+    local_dirty_path = os.getenv("LOCAL_DIRTY_PATH", "/opt/airflow/data/dirty_data.csv")
+    local_clean_folder = os.getenv("LOCAL_CLEAN_FOLDER", "/opt/airflow/data/clean_data_temp")
+    local_clean_path = os.getenv("LOCAL_CLEAN_PATH", "/opt/airflow/data/clean_data.csv")
+        
+    # Step 1: Download dirty data from S3
+    download_from_s3(bucket_name, s3_file_key, local_dirty_path)
+
+    # Step 2: Clean the data locally with Spark and save the cleaned data locally
+    clean_data_with_spark(local_dirty_path, local_clean_folder, local_clean_path)
+
+    # Step 3: Delete S3 bucket and its contents
+    delete_s3_bucket(bucket_name)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,67 @@
+# 1. Base Image: Use official Python 3.12 Slim for consistency with Airflow
+FROM python:3.12.3-slim-bookworm
+
+# 2. Define Environment Variables and Versions
+ENV SPARK_VERSION=3.5.2
+ENV HADOOP_VERSION=3
+ENV SPARK_HOME=/opt/spark
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+ENV PATH="${SPARK_HOME}/bin:${SPARK_HOME}/sbin:${PATH}"
+
+USER root
+
+# 3. Install System Dependencies and Java 17
+# Spark requires a Java Runtime Environment (JRE) to run its JVM.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    procps \
+    sudo \
+    wget \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Java 21 (Temurin)
+RUN wget https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.2%2B13/OpenJDK21U-jdk_x64_linux_hotspot_21.0.2_13.tar.gz -O /tmp/java21.tar.gz && \
+    mkdir -p /usr/lib/jvm/java-21-openjdk-amd64 && \
+    tar -xzf /tmp/java21.tar.gz -C /usr/lib/jvm/java-21-openjdk-amd64 --strip-components=1 && \
+    rm /tmp/java21.tar.gz
+
+# Update the JAVA_HOME path to match version 21
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+
+# 4. Download and Install Apache Spark Binary
+RUN curl -fSL https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz \
+    | tar -xz -C /opt && \
+    ln -s /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} ${SPARK_HOME}
+
+# 5. Create Spark User and Group (Matching UID/GID 1000 for Airflow compatibility)
+RUN groupadd -g 1000 sparkgroup && \
+    useradd -u 1000 -g 1000 -m -d /opt/spark sparkuser && \
+    echo "sparkuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/sparkuser-nopasswd && \
+    chmod 440 /etc/sudoers.d/sparkuser-nopasswd
+
+# 6. Set up Spark Directories and Permissions
+RUN mkdir -p ${SPARK_HOME}/tmp/spark-events \
+             ${SPARK_HOME}/work \
+             ${SPARK_HOME}/logs \
+             ${SPARK_HOME}/conf \
+             ${SPARK_HOME}/.ivy2 && \
+    chown -R sparkuser:sparkgroup ${SPARK_HOME} && \
+    chmod -R 777 ${SPARK_HOME}/work ${SPARK_HOME}/tmp ${SPARK_HOME}/.ivy2
+
+# 7. Configure Python for Spark (Version Matching)
+# Force Spark to use the Python 3.12 interpreter from the base image
+ENV PYSPARK_PYTHON=python3
+ENV PYSPARK_DRIVER_PYTHON=python3
+
+# 8. Install Python Dependencies
+COPY requirements-spark.txt /tmp/
+RUN pip install --no-cache-dir -r /tmp/requirements-spark.txt
+
+# 9. Copy Spark Configuration (Optional)
+# Copy spark-defaults.conf if it exists in the build context
+COPY spark-defaults.conf /opt/spark/conf/
+
+# 10. Switch to Non-Root User
+USER sparkuser
+WORKDIR /opt/spark

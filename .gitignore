@@ -1,0 +1,32 @@
+# === 🐍 Python & Byte-compiled files ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# === 📂 Project Data & Staging (Do NOT push CSVs) ===
+data/
+*.csv
+*.xlsx
+*.parquet
+
+# === 🐳 Docker & Airflow Logs ===
+logs/
+*.log
+
+# === 🔐 Environment Variables & Secrets (CRITICAL) ===
+.env
+.envrc
+.env.local
+
+# === ☁️ Virtual Environments ===
+.venv/
+venv/
+env/
+ENV/
+
+# === ⚙️ OS & IDE specific ===
+.DS_Store
+.idea/
+.vscode/
+*.swp

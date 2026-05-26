@@ -1,0 +1,63 @@
+# 1. Base image
+FROM apache/airflow:2.9.1-python3.12
+
+# 2. Build args
+ARG AIRFLOW_UID=1000
+ARG AIRFLOW_GID=1000
+ARG SPARK_SOURCE=remote
+
+USER root
+
+# 3. Install system dependencies (cacheable)
+RUN apt-get update && \
+    apt-get install -y sudo curl procps nano git gnupg lsb-release wget unzip && \
+    curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | bash && \
+    apt-get install -y git-lfs && \
+    git lfs install && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN wget https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.2%2B13/OpenJDK21U-jdk_x64_linux_hotspot_21.0.2_13.tar.gz -O /tmp/java21.tar.gz && \
+    mkdir -p /usr/lib/jvm/java-21-openjdk-amd64 && \
+    tar -xzf /tmp/java21.tar.gz -C /usr/lib/jvm/java-21-openjdk-amd64 --strip-components=1 && \
+    rm /tmp/java21.tar.gz
+
+# 4. Create airflow user (rarely changes)
+RUN groupadd -g ${AIRFLOW_GID} airflow || true && \
+    usermod -u ${AIRFLOW_UID} -g ${AIRFLOW_GID} airflow && \
+    mkdir -p /opt/airflow && chown -R ${AIRFLOW_UID}:${AIRFLOW_GID} /opt/airflow && \
+    echo "airflow ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/airflow-nopasswd && chmod 440 /etc/sudoers.d/airflow-nopasswd
+
+# 5. Set Spark environment variables
+ENV SPARK_VERSION=3.5.6
+ENV HADOOP_VERSION=3
+ENV SPARK_HOME=/opt/spark
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+ENV PATH="${SPARK_HOME}/bin:${JAVA_HOME}/bin:$PATH"
+
+COPY spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz* /tmp/
+
+RUN if [ "$SPARK_SOURCE" = "remote" ]; then \
+        echo "Fetching Spark from official Apache archives..." && \
+        wget https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz -P /tmp; \
+    else \
+        echo "Using Spark binary provided in the local build context..."; \
+    fi && \
+    tar -xzf /tmp/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz -C /opt && \
+    ln -s /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} ${SPARK_HOME} && \
+    rm /tmp/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz
+
+# 6. Switch to airflow user
+USER airflow
+
+# 7. Copy only requirements first (this ensures caching)
+COPY requirements-airflow.txt /tmp/
+
+# 8. Install Python dependencies (only reruns if requirements.txt changes)
+RUN pip install --no-cache-dir -r /tmp/requirements-airflow.txt
+
+# 9. Copy rest of the code after dependencies are installed
+COPY . /opt/airflow
+
+# 10. Working directory and PATH
+WORKDIR /opt/airflow
+ENV PATH="/home/airflow/.local/bin:$PATH"

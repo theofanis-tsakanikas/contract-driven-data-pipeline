@@ -1,0 +1,197 @@
+#version: '3.8'
+
+x-airflow-common: # Define common configuration for Airflow services to avoid repetition
+  &airflow-common # Anchor for Airflow common configuration
+  build: 
+    context: . # Build context for Airflow services, pointing to the current directory where the Dockerfile is located
+    dockerfile: Dockerfile.airflow # Use a custom Dockerfile for Airflow to include necessary dependencies and configurations
+  image: custom-airflow:latest
+  env_file:
+    - ../.env # Load environment variables from the .env file for Airflow services
+  environment:
+    &airflow-common-env # Anchor for Airflow common environment variables to avoid repetition
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${DB_USER}:${DB_PASS}@postgres/${POSTGRES_DB} # Configure Airflow to use PostgreSQL as the metadata database
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${DB_USER}:${DB_PASS}@postgres/${POSTGRES_DB} # Use PostgreSQL as the result backend for Celery
+    AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'False'  # Disable example DAGs in Airflow UI
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'True'  # Enable webserver config view
+    AIRFLOW__METRICS__STATSD_ON: 'True'  # Enable StatsD metrics collection
+    AIRFLOW__METRICS__STATSD_HOST: statsd-exporter
+    AIRFLOW__METRICS__STATSD_PORT: 8125
+    AIRFLOW__METRICS__STATSD_PREFIX: airflow
+
+  volumes: # Mount necessary directories for Airflow services, including DAGs, logs, initialization scripts, data, and scripts. Also mount AWS credentials for S3 access.
+    - ../dags:/opt/airflow/dags
+    - ../logs:/opt/airflow/logs
+    - ./init.sh:/opt/airflow/init.sh
+    - ../data:/opt/airflow/data
+    - ../scripts:/opt/airflow/scripts
+  user: "${AIRFLOW_UID}:${AIRFLOW_GID}"  # Run containers as defined user/group from .env or defaults
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks:
+      - infra-network
+
+services:
+
+  # PostgreSQL Database for Airflow metadata
+  postgres:
+    image: postgres:13
+    container_name: airflow-docker-postgres-1
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - infra-network
+
+  # Redis for Celery broker
+  redis:
+    image: redis/redis-stack-server:latest
+    container_name: redis
+    ports:
+      - "6379:6379"         # Redis server only
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - infra-network
+
+  airflow-init:
+    <<: *airflow-common # Use the common Airflow configuration for the initialization service
+    user: "${AIRFLOW_UID}:${AIRFLOW_GID}"
+    entrypoint: /bin/bash
+    command: -c "/opt/airflow/init.sh"
+    healthcheck:
+      test: ["CMD", "test", "-f", "/opt/airflow/initialized"]
+      interval: 5s
+      retries: 30
+      start_period: 5s
+    restart: "no"
+
+  # Airflow Webserver UI
+  airflow-webserver:
+    <<: *airflow-common
+    user: "${AIRFLOW_UID}:${AIRFLOW_GID}" # Ensure webserver runs with the same user/group as defined in .env or defaults
+    command: webserver
+    environment:
+      <<: *airflow-common-env
+      AIRFLOW__WEBSERVER__BASE_URL: http://localhost:8080  # Change as needed for your deployment
+    ports:
+      - "8088:8080"
+    depends_on:
+      airflow-init:
+        condition: service_healthy
+
+  # Airflow Scheduler service
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler # Run the Airflow scheduler to manage task scheduling and execution
+    environment:
+      <<: *airflow-common-env
+    ports:
+      - "42000:42000"
+      - "42001:42001"
+    depends_on:
+      airflow-init:
+        condition: service_healthy
+
+  airflow-worker:
+    <<: *airflow-common
+    command: celery worker # Run the Celery worker to execute tasks
+    environment:
+      <<: *airflow-common-env
+    depends_on:
+      airflow-init:
+        condition: service_healthy
+
+  # Airflow Triggerer service (handles trigger rules)
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer # Run the Airflow triggerer to manage task triggers
+    environment:
+      <<: *airflow-common-env
+    depends_on:
+      airflow-init:
+        condition: service_healthy
+
+  # PgAdmin for PostgreSQL management UI
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin 
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_MAIL:-admin@admin.com} # Set default email for PgAdmin login, can be overridden by .env variable
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASS:-admin} # Set default password for PgAdmin login, can be overridden by .env variable
+    ports:
+      - "5050:80"
+    restart: unless-stopped
+    networks:
+      - infra-network
+
+  # Spark Master node for cluster management
+  spark-master:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    image: infra/spark-base:3.5.2
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_WEBUI_PORT=8080
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    volumes:
+      - ../data:/opt/airflow/data
+      - ../scripts:/opt/airflow/scripts
+    networks:
+      - infra-network  
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark-master", "--port", "7077", "--webui-port", "8080"]
+
+ # Spark Worker nodes for processing
+  spark-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=5G
+      - SPARK_EXECUTOR_MEMORY=5G
+    depends_on:
+      - spark-master
+    volumes:
+      - ../data:/opt/airflow/data
+      - ../scripts:/opt/airflow/scripts
+    networks:
+      - infra-network
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "--webui-port", "8081", "spark://spark-master:7077"]
+
+volumes:
+  postgres:
+  redis-data:
+
+networks:
+  infra-network:
+    name: infra-network
+    driver: bridge
