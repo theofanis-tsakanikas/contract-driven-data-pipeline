@@ -1,3 +1,8 @@
+"""Ingestion stage: generate synthetic "dirty" user data with Faker and upload it to S3.
+
+Runs as the ``run_ingestion`` Airflow task. Configuration is read from environment
+variables (``LOCAL_DIRTY_PATH``, ``S3_BUCKET_NAME``, ``S3_FILE_KEY``, ``AWS_DEFAULT_REGION``).
+"""
 import csv
 import random
 import faker
@@ -16,7 +21,8 @@ fake = faker.Faker('en_US')
 s3_client = boto3.client('s3')  # Uses environment variables for credentials
 
 # Functions to generate random values for different fields
-def random_phone():
+def random_phone() -> str:
+    """Return a Greek mobile (69 + 8 digits), a Faker phone, or an empty string."""
     r = random.random()
     if r < 0.5:
         return "69" + "".join(str(random.randint(0, 9)) for _ in range(8))
@@ -25,7 +31,8 @@ def random_phone():
     else:
         return ""
 
-def random_zip():
+def random_zip() -> str:
+    """Return a valid 5-digit zip ~70% of the time, otherwise a malformed value."""
     if random.random() < 0.7:
         return "".join(str(random.randint(0, 9)) for _ in range(5))
     else:
@@ -37,31 +44,35 @@ def random_zip():
         ]
         return random.choice(choices)
 
-def random_email(name):
+def random_email(name: str) -> str:
+    """Return a plausible email derived from ``name``, or an invalid placeholder."""
     if random.random() < 0.8:
         return name.lower().replace(" ", ".") + "@" + fake.free_email_domain()
     else:
         return "invalid-email"
 
-def random_age():
+def random_age() -> int:
+    """Return a realistic adult age ~80% of the time, otherwise an out-of-range value."""
     if random.random() < 0.8:
         return random.randint(18, 90)
     else:
         return random.choice([-5, 0, 150])
 
-def random_name():
+def random_name() -> str:
+    """Return a Faker name ~90% of the time, otherwise an empty string."""
     if random.random() < 0.9:
         return fake.name()
     else:
         return ""
 
-def random_city():
+def random_city() -> str:
+    """Return a Faker city ~85% of the time, otherwise an empty string."""
     if random.random() < 0.85:
         return fake.city()
     else:
         return ""
 
-def create_dirty_data(filepath):
+def create_dirty_data(filepath: str) -> None:
     """Create a dirty CSV file with random data."""
     with open(filepath, mode="w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
@@ -82,7 +93,7 @@ def create_dirty_data(filepath):
 
     logger.info(f"✅ Dirty data saved to {filepath}")
 
-def upload_to_s3(local_filepath, bucket_name, s3_file_key):
+def upload_to_s3(local_filepath: str, bucket_name: str, s3_file_key: str) -> None:
     """Upload the dirty data CSV to S3."""
     try:
         # Upload the local CSV file to the specified S3 bucket
@@ -95,7 +106,7 @@ def upload_to_s3(local_filepath, bucket_name, s3_file_key):
     except ClientError as e:
         logger.info(f"⚠️ Error uploading file to S3: {e}")
 
-def create_bucket(bucket_name, region):
+def create_bucket(bucket_name: str, region: str) -> None:
     """Create an S3 bucket in any region dynamically."""
     try:
         # Check if the bucket already exists
@@ -119,7 +130,8 @@ def create_bucket(bucket_name, region):
         else:
             logger.error(f"❌ Error checking bucket existence: {e}")
 
-def main():
+def main() -> None:
+    """Generate dirty data locally, ensure the S3 bucket exists, and upload the CSV."""
     # File path for the local dirty data CSV
     local_csv_path = os.getenv("LOCAL_DIRTY_PATH")
     

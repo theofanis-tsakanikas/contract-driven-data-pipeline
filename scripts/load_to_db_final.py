@@ -1,3 +1,11 @@
+"""Load stage: bulk-load the cleaned CSV into PostgreSQL.
+
+Runs as the ``run_loading`` Airflow task. Creates the target database and ``users``
+table if needed, then performs an idempotent bulk upsert with ``execute_values`` and
+``ON CONFLICT (user_id) DO NOTHING``. Configuration is read from environment variables
+(``DB_HOST``, ``DB_PORT``, ``DEFAULT_DB``, ``TARGET_DB``, ``DB_USER``, ``DB_PASS``,
+``LOCAL_CLEAN_PATH``).
+"""
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
@@ -7,7 +15,8 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def load_to_database():
+def load_to_database() -> None:
+    """Read the cleaned CSV and bulk-upsert it into the target PostgreSQL database."""
     #--- Load environment variables ---
     DB_HOST = os.getenv("DB_HOST")
     DB_PORT = os.getenv("DB_PORT")

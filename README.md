@@ -6,6 +6,52 @@
 
 An automated, containerized ETL (Extract, Transform, Load) pipeline orchestrated by `Apache Airflow`. The project generates mock "dirty" data, uploads them to `AWS S3,` processes and cleans them using `PySpark`, and performs a high-performance bulk load into `PostgreSQL`.
 
+[![CI](https://github.com/theofanis-tsakanikas/s3-spark-pg-etl/actions/workflows/ci.yml/badge.svg)](https://github.com/theofanis-tsakanikas/s3-spark-pg-etl/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-2.9.1-017CEE?logo=apacheairflow&logoColor=white)
+![Apache Spark](https://img.shields.io/badge/Apache%20Spark-3.5.2-E25A1C?logo=apachespark&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-13-4169E1?logo=postgresql&logoColor=white)
+![dbt](https://img.shields.io/badge/dbt-1.8.2-FF694B?logo=dbt&logoColor=white)
+
+---
+
+## 💡 Why This Project
+
+This is an end-to-end **data engineering** portfolio project that demonstrates a modern,
+production-minded analytics stack running entirely on a local machine via Docker. It shows:
+
+- **Pipeline orchestration** — an Airflow DAG (TaskFlow API) coordinating ingestion,
+  transformation, loading, and analytics, with retries and a clear task lineage.
+- **Distributed data processing** — PySpark schema enforcement, regex/null validation,
+  type casting, and deterministic surrogate-key generation (MD5 hashing).
+- **Cloud object storage** — programmatic S3 ingestion with boto3 and least-privilege IAM.
+- **High-performance loading** — bulk upserts into PostgreSQL with `execute_values` and
+  idempotent `ON CONFLICT` semantics.
+- **Analytics engineering** — a dbt silver/marts layer (staging view + aggregate marts)
+  with tests, isolated from Airflow's dependencies.
+- **Reproducibility & quality** — connections-as-code, a containerised stack, unit tests
+  for the transform, ruff linting, and a CI pipeline (lint + PySpark tests + a Postgres
+  smoke test).
+
+> New here? Start with the [Data Lineage](#-data-lineage) diagram, then the
+> [Installation & Setup](#-installation--setup). For an engineering deep-dive, see
+> [CLAUDE.md](CLAUDE.md).
+
+## 📑 Table of Contents
+
+- [Why This Project](#-why-this-project)
+- [Architecture Overview](#-architecture-overview)
+  - [Data Lineage](#-data-lineage)
+- [Database Architecture: Local vs Production Mindset](#-database-architecture-local-vs-production-mindset)
+- [Security & AWS IAM Configuration](#-security--aws-iam-configuration)
+- [Project Structure](#-project-structure)
+- [Tech Stack & Prerequisites](#-tech-stack--prerequisites)
+- [Installation & Setup](#-installation--setup)
+- [ETL Pipeline Breakdown](#-etl-pipeline-breakdown)
+- [Monitoring UIs](#-monitoring-uis)
+- [Pipeline Execution & Monitoring](#-pipeline-execution--monitoring)
+
 ---
 
 ## 🏗️ Architecture Overview

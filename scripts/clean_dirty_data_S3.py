@@ -1,4 +1,12 @@
-from pyspark.sql import SparkSession
+"""Transform stage: download the raw CSV from S3, clean it with PySpark, then drop the bucket.
+
+Runs as the ``spark-clean-task`` Airflow task. ``clean_dataframe`` is the pure,
+unit-tested transformation core (no I/O); the surrounding functions handle S3 download,
+local single-file output, and S3 bucket teardown. Configuration is read from environment
+variables (``S3_BUCKET_NAME``, ``S3_FILE_KEY``, ``LOCAL_DIRTY_PATH``,
+``LOCAL_CLEAN_FOLDER``, ``LOCAL_CLEAN_PATH``).
+"""
+from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import col, trim, length, md5, concat_ws
 from pyspark.sql.types import IntegerType
 from pyspark.sql.types import StructType, StructField, StringType
@@ -26,7 +34,7 @@ EXPECTED_SCHEMA = StructType([
     StructField("city", StringType(), True)
 ])
 
-def download_from_s3(bucket_name, s3_file_key, local_dirty_path):
+def download_from_s3(bucket_name: str, s3_file_key: str, local_dirty_path: str) -> None:
     """Download dirty_data.csv from S3 bucket."""
     try:
         s3_client.download_file(bucket_name, s3_file_key, local_dirty_path)
@@ -35,7 +43,7 @@ def download_from_s3(bucket_name, s3_file_key, local_dirty_path):
         logger.info(f"⚠️ Error downloading file from S3: {e}")
         raise
 
-def delete_s3_bucket(bucket_name):
+def delete_s3_bucket(bucket_name: str) -> None:
     """Delete all contents and remove the S3 bucket."""
     try:
         # List and delete all objects
@@ -52,7 +60,7 @@ def delete_s3_bucket(bucket_name):
         logger.info(f"⚠️ Error deleting S3 bucket: {e}")
         raise
 
-def clean_dataframe(df):
+def clean_dataframe(df: DataFrame) -> DataFrame:
     """Apply the data contract to a raw Spark DataFrame and return the cleaned one.
 
     Pure transformation (no I/O) so it can be unit-tested in isolation:
@@ -90,7 +98,7 @@ def clean_dataframe(df):
 
     return df
 
-def clean_data_with_spark(local_dirty_path,local_clean_folder, local_clean_path):
+def clean_data_with_spark(local_dirty_path: str, local_clean_folder: str, local_clean_path: str) -> None:
     """Clean dirty CSV data using PySpark."""
 
     spark = SparkSession.builder \
@@ -133,7 +141,7 @@ def clean_data_with_spark(local_dirty_path,local_clean_folder, local_clean_path)
 
     spark.stop()
 
-def main():
+def main() -> None:
     """Main ETL workflow: Download → Clean → Delete S3."""
     # --- AWS S3 Configuration ---
     bucket_name = os.getenv("S3_BUCKET_NAME", "my-dirty-data-bucket")

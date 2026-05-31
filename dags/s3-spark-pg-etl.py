@@ -1,3 +1,8 @@
+"""Airflow DAG (``s3-to-postgres-etl``) orchestrating the S3 → PySpark → PostgreSQL → dbt pipeline.
+
+Task order: ``run_ingestion`` → ``spark-clean-task`` → ``run_loading`` → ``run_dbt``.
+Manual trigger only (``schedule=None``, ``catchup=False``).
+"""
 from airflow.decorators import dag, task
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.operators.bash import BashOperator
@@ -21,11 +26,12 @@ default_args = {
     tags=['spark', 's3', 'postgres']
 )
 
-def etl_pipeline():
+def etl_pipeline() -> None:
+    """Define the ETL DAG: ingestion → Spark clean → load → dbt."""
     # Placeholder function to trigger the ingestion task
     @task
-    def run_ingestion():
-
+    def run_ingestion() -> str:
+        """Run the Faker → S3 ingestion script in a subprocess."""
         subprocess.run(['python3', '/opt/airflow/scripts/generate_dirty_data_S3.py'], check=True)
         return "Ingestion-Complete"
 
@@ -41,8 +47,8 @@ def etl_pipeline():
 
     # Placeholder function to trigger the loading task
     @task
-    def run_loading():
-
+    def run_loading() -> str:
+        """Run the PostgreSQL bulk-load script in a subprocess."""
         subprocess.run(['python3', '/opt/airflow/scripts/load_to_db_final.py'], check=True)
         return "Loading-Complete"
 

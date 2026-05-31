@@ -1,3 +1,4 @@
+"""Shared pytest fixtures and import-path setup for the PySpark transform tests."""
 import os
 import sys
 from pathlib import Path
