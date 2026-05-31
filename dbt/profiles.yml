@@ -1,0 +1,15 @@
+# Connection is sourced entirely from the same .env variables the rest of the
+# stack uses, so there are no manual steps. Points at the TARGET_DB (user_data)
+# where the ETL lands the cleaned `users` table.
+user_data:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DB_HOST') }}"
+      port: "{{ env_var('DB_PORT') | as_number }}"
+      user: "{{ env_var('DB_USER') }}"
+      password: "{{ env_var('DB_PASS') }}"
+      dbname: "{{ env_var('TARGET_DB') }}"
+      schema: public
+      threads: 4

@@ -18,6 +18,42 @@ The data flows through the pipeline in three main stages, all orchestrated by Ai
 
 > **Note on Production vs Local Testing:** In a standard Cloud Production environment, Spark would read directly from S3 using s3a/s3n protocols and write directly to the database via a JDBC connector. For local testing, isolation, and cost-efficiency purposes, this pipeline downloads the data locally to clearly separate and monitor the three distinct ETL stages.
 
+### 🧬 Data Lineage
+
+End-to-end flow from raw S3 to the dbt analytics layer. The dotted arrows map each
+Airflow task to the stage it drives.
+
+```mermaid
+flowchart TD
+    subgraph AF["Apache Airflow DAG: s3-to-postgres-etl"]
+        direction LR
+        T1["run_ingestion"] --> T2["spark-clean-task"] --> T3["run_loading"] --> T4["run_dbt"]
+    end
+
+    GEN["generate_dirty_data_S3.py<br/>Faker · 100 dirty rows"]
+    S3["AWS S3<br/>s3://&lt;S3_BUCKET_NAME&gt;/raw/dirty-data.csv"]
+    SPARK["clean_dirty_data_S3.py<br/>PySpark local[*] · schema + regex validation · md5 user_id"]
+    CSV["Local staging<br/>/opt/airflow/data/clean_data.csv"]
+    PG[("PostgreSQL<br/>user_data.users")]
+    STG["dbt: stg_users<br/>silver · email_domain, age_band"]
+    M1["dbt: users_by_city"]
+    M2["dbt: users_by_age_band"]
+
+    GEN -->|upload| S3
+    S3 -->|download| SPARK
+    SPARK --> CSV
+    SPARK -.->|delete bucket| S3
+    CSV -->|execute_values upsert| PG
+    PG --> STG
+    STG --> M1
+    STG --> M2
+
+    T1 -.-> GEN
+    T2 -.-> SPARK
+    T3 -.-> CSV
+    T4 -.-> STG
+```
+
 ---
 
 ## 🗄️ Database Architecture: Local vs Production Mindset

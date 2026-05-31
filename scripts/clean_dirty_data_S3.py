@@ -52,27 +52,13 @@ def delete_s3_bucket(bucket_name):
         logger.info(f"⚠️ Error deleting S3 bucket: {e}")
         raise
 
-def clean_data_with_spark(local_dirty_path,local_clean_folder, local_clean_path):
-    """Clean dirty CSV data using PySpark."""
+def clean_dataframe(df):
+    """Apply the data contract to a raw Spark DataFrame and return the cleaned one.
 
-    spark = SparkSession.builder \
-        .master("local[*]") \
-        .appName("Clean Dirty Data") \
-        .config("spark.driver.memory", "2g") \
-        .getOrCreate()
-
-    
-    if not os.path.exists(local_dirty_path):
-        logger.error(f"❌ File not found: {local_dirty_path}")
-        return
-    
-    # Load dirty CSV data into a Spark DataFrame with the expected schema
-    df = spark.read \
-        .option("header", "true") \
-        .option("encoding", "UTF-8") \
-        .schema(EXPECTED_SCHEMA) \
-        .csv(local_dirty_path)
-
+    Pure transformation (no I/O) so it can be unit-tested in isolation:
+    trims strings, filters invalid rows, casts age, drops the source id,
+    derives the deterministic user_id hash, and reorders columns.
+    """
     # Clean string fields
     df = df.withColumn("name", trim(col("name"))) \
            .withColumn("email", trim(col("email"))) \
@@ -101,6 +87,32 @@ def clean_data_with_spark(local_dirty_path,local_clean_folder, local_clean_path)
     # Reorder columns
     desired_order = ["user_id", "name", "email", "phone", "zip_code", "age", "city"]
     df = df.select(*desired_order)
+
+    return df
+
+def clean_data_with_spark(local_dirty_path,local_clean_folder, local_clean_path):
+    """Clean dirty CSV data using PySpark."""
+
+    spark = SparkSession.builder \
+        .master("local[*]") \
+        .appName("Clean Dirty Data") \
+        .config("spark.driver.memory", "2g") \
+        .getOrCreate()
+
+
+    if not os.path.exists(local_dirty_path):
+        logger.error(f"❌ File not found: {local_dirty_path}")
+        return
+
+    # Load dirty CSV data into a Spark DataFrame with the expected schema
+    df = spark.read \
+        .option("header", "true") \
+        .option("encoding", "UTF-8") \
+        .schema(EXPECTED_SCHEMA) \
+        .csv(local_dirty_path)
+
+    # Apply the data contract (pure, testable transformation)
+    df = clean_dataframe(df)
 
     # Save locally (same logic as before) as a single CSV file with UTF-8 encoding and header
     df.coalesce(1) \

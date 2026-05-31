@@ -1,0 +1,14 @@
+[tool.ruff]
+# Match the Airflow/Spark runtime (Python 3.12).
+target-version = "py312"
+line-length = 120
+extend-exclude = ["data", "logs", "images"]
+
+[tool.ruff.lint]
+# Conservative scope: pyflakes (F) catches real bugs (unused imports,
+# undefined names) and the E4/E7/E9 pycodestyle subset catches syntax-level
+# issues. Stylistic rules are intentionally left off to avoid churn.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

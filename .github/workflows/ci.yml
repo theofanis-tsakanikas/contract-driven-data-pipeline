@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff lint
+        run: ruff check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Spark 3.5.2 officially supports Java 17; this matches the version the
+      # PySpark unit tests were validated against.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: pip install pyspark==3.5.2 pandas==2.1.4 boto3==1.42.73 pytest
+      - name: Run PySpark transformation tests
+        # local[1] + low driver memory keeps Spark within the GitHub runner (~7GB).
+        env:
+          AWS_DEFAULT_REGION: us-east-1
+        run: pytest tests/ -q
+
+  smoke:
+    # End-to-end smoke test of the loader against a real PostgreSQL service.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: airflow
+          POSTGRES_PASSWORD: airflow
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_USER: airflow
+      DB_PASS: airflow
+      DEFAULT_DB: postgres
+      TARGET_DB: user_data
+      LOCAL_CLEAN_PATH: /tmp/clean_data.csv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install loader dependencies
+        run: pip install pandas==2.1.4 psycopg2-binary==2.9.9
+      - name: Create a cleaned CSV fixture
+        # Mirrors the schema produced by clean_dirty_data_S3.py.
+        run: |
+          printf 'user_id,name,email,phone,zip_code,age,city\n' > "$LOCAL_CLEAN_PATH"
+          printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,Wendy Christian,wendy@example.com,6912345678,12345,30,Athens\n' >> "$LOCAL_CLEAN_PATH"
+          printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,Mark Anthony,mark@example.com,6900000000,54321,40,Berlin\n' >> "$LOCAL_CLEAN_PATH"
+      - name: Run the loader
+        run: python scripts/load_to_db_final.py
+      - name: Assert rows landed in PostgreSQL
+        run: |
+          python - <<'PY'
+          import os, psycopg2
+          conn = psycopg2.connect(
+              dbname=os.environ["TARGET_DB"], user=os.environ["DB_USER"],
+              password=os.environ["DB_PASS"], host=os.environ["DB_HOST"],
+              port=os.environ["DB_PORT"],
+          )
+          cur = conn.cursor()
+          cur.execute("SELECT count(*) FROM users;")
+          count = cur.fetchone()[0]
+          assert count == 2, f"expected 2 rows, got {count}"
+          print(f"OK: {count} rows loaded")
+          PY

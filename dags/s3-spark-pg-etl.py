@@ -46,10 +46,22 @@ def etl_pipeline():
         subprocess.run(['python3', '/opt/airflow/scripts/load_to_db_final.py'], check=True)
         return "Loading-Complete"
 
+    # dbt builds the silver/analytics layer on top of the loaded users table.
+    # dbt lives in an isolated venv (see Dockerfile.airflow) to avoid dependency
+    # clashes with Airflow; project and profiles are mounted at /opt/airflow/dbt.
+    run_dbt = BashOperator(
+        task_id='run_dbt',
+        bash_command=(
+            '/home/airflow/dbt-venv/bin/dbt run '
+            '--project-dir /opt/airflow/dbt '
+            '--profiles-dir /opt/airflow/dbt'
+        ),
+    )
+
     ingest_step = run_ingestion()
     load_step = run_loading()
 
-    ingest_step >> clean_data >> load_step
+    ingest_step >> clean_data >> load_step >> run_dbt
 
 # Εκτέλεση του DAG
 etl_pipeline()

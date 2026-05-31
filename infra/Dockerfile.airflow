@@ -28,7 +28,7 @@ RUN groupadd -g ${AIRFLOW_GID} airflow || true && \
     echo "airflow ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/airflow-nopasswd && chmod 440 /etc/sudoers.d/airflow-nopasswd
 
 # 5. Set Spark environment variables
-ENV SPARK_VERSION=3.5.6
+ENV SPARK_VERSION=3.5.2
 ENV HADOOP_VERSION=3
 ENV SPARK_HOME=/opt/spark
 ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
@@ -54,6 +54,12 @@ COPY requirements-airflow.txt /tmp/
 
 # 8. Install Python dependencies (only reruns if requirements.txt changes)
 RUN pip install --no-cache-dir -r /tmp/requirements-airflow.txt
+
+# 8b. Install dbt in an ISOLATED virtualenv so its pinned deps (jinja2, agate,
+# protobuf, etc.) never conflict with Airflow's. The run_dbt DAG task invokes
+# this venv's binary directly.
+RUN python -m venv /home/airflow/dbt-venv && \
+    /home/airflow/dbt-venv/bin/pip install --no-cache-dir dbt-postgres==1.8.2
 
 # 9. Copy rest of the code after dependencies are installed
 COPY . /opt/airflow

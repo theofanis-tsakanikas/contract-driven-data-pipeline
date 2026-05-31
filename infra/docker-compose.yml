@@ -21,12 +21,21 @@ x-airflow-common: # Define common configuration for Airflow services to avoid re
     AIRFLOW__METRICS__STATSD_PORT: 8125
     AIRFLOW__METRICS__STATSD_PREFIX: airflow
 
+    # --- Airflow connections as code (declare-only, no manual UI steps) ---
+    # Defined via the AIRFLOW_CONN_<CONN_ID> pattern so the stack is fully
+    # reproducible after `docker compose up`. JSON form is used to avoid
+    # URL-encoding issues with special characters in the AWS secret key.
+    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type": "spark", "host": "spark://spark-master", "port": 7077}'
+    AIRFLOW_CONN_AWS_DEFAULT: '{"conn_type": "aws", "login": "${AWS_ACCESS_KEY_ID}", "password": "${AWS_SECRET_ACCESS_KEY}", "extra": {"region_name": "${AWS_DEFAULT_REGION}"}}'
+    AIRFLOW_CONN_POSTGRES_DEFAULT: '{"conn_type": "postgres", "login": "${DB_USER}", "password": "${DB_PASS}", "host": "${DB_HOST}", "port": ${DB_PORT}, "schema": "${TARGET_DB}"}'
+
   volumes: # Mount necessary directories for Airflow services, including DAGs, logs, initialization scripts, data, and scripts. Also mount AWS credentials for S3 access.
     - ../dags:/opt/airflow/dags
     - ../logs:/opt/airflow/logs
     - ./init.sh:/opt/airflow/init.sh
     - ../data:/opt/airflow/data
     - ../scripts:/opt/airflow/scripts
+    - ../dbt:/opt/airflow/dbt
   user: "${AIRFLOW_UID}:${AIRFLOW_GID}"  # Run containers as defined user/group from .env or defaults
   depends_on:
     postgres:

@@ -1,0 +1,21 @@
+name: 'user_data_analytics'
+version: '1.0.0'
+config-version: 2
+
+# Profile defined in dbt/profiles.yml (loaded via --profiles-dir at runtime).
+profile: 'user_data'
+
+model-paths: ["models"]
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Silver/analytics layer that sits on top of the cleaned `public.users` table
+# produced by the PySpark + load_to_db_final.py ETL stages.
+models:
+  user_data_analytics:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

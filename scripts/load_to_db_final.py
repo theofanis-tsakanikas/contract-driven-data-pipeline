@@ -51,7 +51,7 @@ def load_to_database():
         conn.close()
 
     except Exception as e:
-        logger.info("❌ Error checking/creating database:", e)
+        logger.error(f"❌ Error checking/creating database: {e}")
         return
 
     # --- Step 3: Connect to the target database and insert data ---
@@ -95,10 +95,10 @@ def load_to_database():
         logger.info(f"✅ Inserted {len(df)} rows into '{TARGET_DB}.users'")
 
     except Exception as e:
-        logger.info("❌ Error inserting data:", e)
+        logger.error(f"❌ Error inserting data: {e}")
     finally:
-        if 'cur' in locals(): cur.close()
-        if 'conn' in locals(): conn.close()
+        if 'cur' in locals(): cur.close()  # noqa: E701
+        if 'conn' in locals(): conn.close()  # noqa: E701
 
 
 if __name__ == "__main__":

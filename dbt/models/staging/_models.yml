@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: stg_users
+    description: "Enriched user dimension (silver layer) built on raw.users."
+    columns:
+      - name: user_id
+        tests:
+          - not_null
+          - unique
+      - name: age_band
+        tests:
+          - accepted_values:
+              values: ['18-29', '30-44', '45-64', '65+']

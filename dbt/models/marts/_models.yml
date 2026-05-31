@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: users_by_city
+    description: "User counts per city (analytics layer)."
+    columns:
+      - name: city
+        tests:
+          - not_null
+  - name: users_by_age_band
+    description: "User counts per age band (analytics layer)."
+    columns:
+      - name: age_band
+        tests:
+          - not_null
+          - unique
