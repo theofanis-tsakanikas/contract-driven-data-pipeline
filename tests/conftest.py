@@ -16,9 +16,17 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 
 @pytest.fixture(scope="session")
-def spark():
-    """A lightweight local SparkSession shared across the test session."""
+def spark(tmp_path_factory):
+    """A lightweight local SparkSession shared across the test session.
+
+    The Derby metastore and SQL warehouse are pinned to a pytest-managed tmp dir
+    so a test run never leaves ``metastore_db/``, ``derby.log``, or
+    ``spark-warehouse/`` behind in the repo root.
+    """
     from pyspark.sql import SparkSession
+
+    warehouse = tmp_path_factory.mktemp("spark-warehouse")
+    derby = tmp_path_factory.mktemp("derby")
 
     session = (
         SparkSession.builder.master("local[1]")
@@ -26,6 +34,8 @@ def spark():
         .config("spark.driver.memory", "1g")
         .config("spark.sql.shuffle.partitions", "1")
         .config("spark.ui.enabled", "false")
+        .config("spark.sql.warehouse.dir", str(warehouse))
+        .config("spark.driver.extraJavaOptions", f"-Dderby.system.home={derby}")
         .getOrCreate()
     )
     yield session

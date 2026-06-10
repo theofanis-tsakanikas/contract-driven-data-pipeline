@@ -38,10 +38,10 @@ s3-spark-pg-etl/
 
 | Component | Version | Source |
 | :-- | :-- | :-- |
-| Apache Airflow | 2.9.1 | `infra/Dockerfile.airflow` (`apache/airflow:2.9.1-python3.12`) |
+| Apache Airflow | 2.11.0 | `infra/Dockerfile.airflow` (`apache/airflow:2.11.0-python3.12`) |
 | Python | 3.12 | base image |
 | Apache Spark | 3.5.2 | requirements + both Dockerfiles + `spark-defaults.conf` |
-| PostgreSQL | 13 | `infra/docker-compose.yml` |
+| PostgreSQL | 16 | `infra/docker-compose.yml` |
 | Java (runtime) | Temurin 21 (containers) / 17 (CI) | Dockerfiles use 21; CI uses 17 (both supported by Spark 3.5.2) |
 | dbt-postgres | 1.8.2 | isolated venv `/home/airflow/dbt-venv` |
 | Providers | apache-spark 4.8.1, amazon 8.24.0 | `requirements-airflow.txt` |
@@ -78,7 +78,7 @@ UIs: Airflow http://localhost:8088 · pgAdmin http://localhost:5050 · Spark mas
 ## Triggering the DAG (`dag_id: s3-to-postgres-etl`)
 
 - **UI:** http://localhost:8088 → enable the DAG → ▶ Trigger DAG. Task order:
-  `run_ingestion → spark-clean-task → run_loading → run_dbt`.
+  `run_ingestion → spark-clean-task → run_loading → run_dbt → run_dbt_test`.
 - **CLI:**
   ```bash
   docker compose -f infra/docker-compose.yml exec airflow-scheduler \
@@ -152,14 +152,15 @@ Models (silver/analytics on `public.users` in `user_data`):
 - **Lint:** `ruff check .` — conservative ruleset (`E4/E7/E9` + `F`) in `pyproject.toml`;
   stylistic findings are suppressed inline with `# noqa` rather than rewritten.
 - **CI** (`.github/workflows/ci.yml`, on push + PR): `lint`, `test` (PySpark, Java 17,
-  `local[1]`), and a `smoke` job that loads a CSV fixture into a `postgres:13` service
+  `local[1]`), and a `smoke` job that loads a CSV fixture into a `postgres:16` service
   container and asserts the row count.
 
 ## Known failure modes & gotchas
 
-- **The S3 bucket is deleted after cleaning.** `clean_dirty_data_S3.py` calls
-  `delete_s3_bucket()` at the end. Each run recreates and re-deletes it; don't point
-  `S3_BUCKET_NAME` at a bucket you want to keep.
+- **Raw objects are retained.** Each DAG run writes its raw CSV to a date-partitioned
+  key (`raw/dt=<ds>/dirty-data.csv`) and nothing is deleted afterwards — the bucket
+  accumulates a raw-zone history. Clean up old partitions with an S3 lifecycle rule
+  if cost matters.
 - **AWS creds / region.** Missing/invalid `AWS_*` → ingestion fails at upload, or boto3
   raises `NoRegionError`. Region must match where the bucket can be created.
 - **StatsD host doesn't exist.** Compose sets `AIRFLOW__METRICS__STATSD_HOST: statsd-exporter`

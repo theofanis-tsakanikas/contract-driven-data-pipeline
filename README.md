@@ -9,7 +9,7 @@ An automated, containerized ETL (Extract, Transform, Load) pipeline orchestrated
 [![CI](https://github.com/theofanis-tsakanikas/s3-spark-pg-etl/actions/workflows/ci.yml/badge.svg)](https://github.com/theofanis-tsakanikas/s3-spark-pg-etl/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-2.9.1-017CEE?logo=apacheairflow&logoColor=white)
+![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-2.11-017CEE?logo=apacheairflow&logoColor=white)
 ![Apache Spark](https://img.shields.io/badge/Apache%20Spark-3.5.2-E25A1C?logo=apachespark&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-13-4169E1?logo=postgresql&logoColor=white)
 ![dbt](https://img.shields.io/badge/dbt-1.8.2-FF694B?logo=dbt&logoColor=white)
@@ -149,7 +149,7 @@ s3-spark-pg-etl/
 
 | Technology | Purpose | Key Libraries Used |
 | :--- | :--- | :--- |
-| Apache Airflow 2.9.1 | Pipeline Orchestration | TaskFlow API, SparkSubmitOperator |
+| Apache Airflow 2.11 | Pipeline Orchestration | TaskFlow API, SparkSubmitOperator |
 | Apache Spark 3.5.2 | Distributed Processing & Cleaning | pyspark, pyarrow |
 | AWS S3 / Boto3 | Cloud Object Storage | boto3, botocore |
 | PostgreSQL 13 | Target Relational Database | psycopg2-binary, execute_values |

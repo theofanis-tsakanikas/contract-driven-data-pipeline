@@ -1,10 +1,11 @@
-"""Transform stage: download the raw CSV from S3, clean it with PySpark, then drop the bucket.
+"""Transform stage: download the raw CSV from S3 and clean it with PySpark.
 
 Runs as the ``spark-clean-task`` Airflow task. ``clean_dataframe`` is the pure,
-unit-tested transformation core (no I/O); the surrounding functions handle S3 download,
-local single-file output, and S3 bucket teardown. Configuration is read from environment
-variables (``S3_BUCKET_NAME``, ``S3_FILE_KEY``, ``LOCAL_DIRTY_PATH``,
-``LOCAL_CLEAN_FOLDER``, ``LOCAL_CLEAN_PATH``).
+unit-tested transformation core (no I/O); the surrounding functions handle S3 download
+and local single-file output. The raw object stays in S3 under its date-partitioned
+key (``raw/dt=YYYY-MM-DD/...``) so every run leaves an auditable raw-zone history.
+Configuration is read from environment variables (``S3_BUCKET_NAME``, ``S3_FILE_KEY``,
+``LOCAL_DIRTY_PATH``, ``LOCAL_CLEAN_FOLDER``, ``LOCAL_CLEAN_PATH``).
 """
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import col, trim, length, md5, concat_ws
@@ -40,24 +41,7 @@ def download_from_s3(bucket_name: str, s3_file_key: str, local_dirty_path: str) 
         s3_client.download_file(bucket_name, s3_file_key, local_dirty_path)
         logger.info(f"✅ Downloaded '{s3_file_key}' from S3 bucket '{bucket_name}'")
     except ClientError as e:
-        logger.info(f"⚠️ Error downloading file from S3: {e}")
-        raise
-
-def delete_s3_bucket(bucket_name: str) -> None:
-    """Delete all contents and remove the S3 bucket."""
-    try:
-        # List and delete all objects
-        response = s3_client.list_objects_v2(Bucket=bucket_name)
-        if "Contents" in response:
-            for obj in response["Contents"]:
-                s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
-            logger.info("🗑️ All objects deleted from bucket.")
-
-        # Delete the bucket itself
-        s3_client.delete_bucket(Bucket=bucket_name)
-        logger.info(f"✅ S3 bucket '{bucket_name}' deleted successfully.")
-    except ClientError as e:
-        logger.info(f"⚠️ Error deleting S3 bucket: {e}")
+        logger.error(f"❌ Error downloading file from S3: {e}")
         raise
 
 def clean_dataframe(df: DataFrame) -> DataFrame:
@@ -142,22 +126,19 @@ def clean_data_with_spark(local_dirty_path: str, local_clean_folder: str, local_
     spark.stop()
 
 def main() -> None:
-    """Main ETL workflow: Download → Clean → Delete S3."""
+    """Main ETL workflow: Download → Clean. The raw S3 object is retained."""
     # --- AWS S3 Configuration ---
     bucket_name = os.getenv("S3_BUCKET_NAME", "my-dirty-data-bucket")
     s3_file_key = os.getenv("S3_FILE_KEY", "dirty-data.csv")
     local_dirty_path = os.getenv("LOCAL_DIRTY_PATH", "/opt/airflow/data/dirty_data.csv")
     local_clean_folder = os.getenv("LOCAL_CLEAN_FOLDER", "/opt/airflow/data/clean_data_temp")
     local_clean_path = os.getenv("LOCAL_CLEAN_PATH", "/opt/airflow/data/clean_data.csv")
-        
+
     # Step 1: Download dirty data from S3
     download_from_s3(bucket_name, s3_file_key, local_dirty_path)
 
     # Step 2: Clean the data locally with Spark and save the cleaned data locally
     clean_data_with_spark(local_dirty_path, local_clean_folder, local_clean_path)
-
-    # Step 3: Delete S3 bucket and its contents
-    delete_s3_bucket(bucket_name)
 
 if __name__ == "__main__":
     main()

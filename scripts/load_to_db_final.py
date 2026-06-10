@@ -5,9 +5,14 @@ table if needed, then performs an idempotent bulk upsert with ``execute_values``
 ``ON CONFLICT (user_id) DO NOTHING``. Configuration is read from environment variables
 (``DB_HOST``, ``DB_PORT``, ``DEFAULT_DB``, ``TARGET_DB``, ``DB_USER``, ``DB_PASS``,
 ``LOCAL_CLEAN_PATH``).
+
+Failures propagate (no try/except-and-return): a missing input file or a database
+error must mark the Airflow task FAILED so it can retry — a swallowed exception here
+would let the DAG report success with no data loaded.
 """
 import pandas as pd
 import psycopg2
+from psycopg2 import sql
 from psycopg2.extras import execute_values
 import os
 import logging
@@ -21,30 +26,31 @@ def load_to_database() -> None:
     DB_HOST = os.getenv("DB_HOST")
     DB_PORT = os.getenv("DB_PORT")
     DEFAULT_DB = os.getenv("DEFAULT_DB") # Database to connect to for creating the target database (e.g., "postgres")
-    TARGET_DB = os.getenv("TARGET_DB") # Database to load data into (e.g., "clean_data_db") 
+    TARGET_DB = os.getenv("TARGET_DB") # Database to load data into (e.g., "clean_data_db")
     DB_USER = os.getenv("DB_USER")
     DB_PASS = os.getenv("DB_PASS")
     LOCAL_CLEAN_PATH = os.getenv("LOCAL_CLEAN_PATH")
 
     if not os.path.exists(LOCAL_CLEAN_PATH):
-        logger.info(f"❌ File not found: {LOCAL_CLEAN_PATH}")
-        return
+        raise FileNotFoundError(
+            f"Cleaned CSV not found at {LOCAL_CLEAN_PATH} — did the Spark clean task run?"
+        )
 
     # --- Load cleaned CSV data into a DataFrame ---
     df = pd.read_csv(LOCAL_CLEAN_PATH)
     if df.empty:
-        logger.info("⚠️ CSV file is empty. No data to insert.")
+        logger.warning("⚠️ CSV file is empty. No data to insert.")
         return
 
     # --- Step 1: Connect to default DB to create the database if needed ---
+    conn = psycopg2.connect(
+        dbname=DEFAULT_DB,
+        user=DB_USER,
+        password=DB_PASS,
+        host=DB_HOST,
+        port=DB_PORT
+    )
     try:
-        conn = psycopg2.connect(
-            dbname=DEFAULT_DB,  
-            user=DB_USER,
-            password=DB_PASS,
-            host=DB_HOST,
-            port=DB_PORT
-        )
         conn.autocommit = True
         cur = conn.cursor()
 
@@ -52,31 +58,28 @@ def load_to_database() -> None:
         cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (TARGET_DB,))
         if not cur.fetchone():
             logger.info(f"📦 Database '{TARGET_DB}' does not exist. Creating...")
-            cur.execute(f"CREATE DATABASE {TARGET_DB};")
+            # CREATE DATABASE cannot be parameterized; quote the identifier safely.
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(TARGET_DB)))
         else:
             logger.info(f"✅ Database '{TARGET_DB}' already exists.")
 
         cur.close()
+    finally:
         conn.close()
 
-    except Exception as e:
-        logger.error(f"❌ Error checking/creating database: {e}")
-        return
-
     # --- Step 3: Connect to the target database and insert data ---
+    conn = psycopg2.connect(
+        dbname=TARGET_DB,
+        user=DB_USER,
+        password=DB_PASS,
+        host=DB_HOST,
+        port=DB_PORT
+    )
     try:
-        # Connect to the target database    
-        conn = psycopg2.connect(
-            dbname=TARGET_DB,
-            user=DB_USER,
-            password=DB_PASS,
-            host=DB_HOST,
-            port=DB_PORT
-        )
-        # Create cursor
         cur = conn.cursor()
-        
-        # Create table if it doesn't exist
+
+        # zip_code stays TEXT: it is a 5-digit code, not a number — an INTEGER
+        # column would silently drop leading zeros.
         create_table_query = """
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
@@ -84,7 +87,7 @@ def load_to_database() -> None:
             name TEXT,
             email TEXT,
             phone TEXT,
-            zip_code INTEGER,
+            zip_code TEXT,
             age INTEGER,
             city TEXT
         );
@@ -99,15 +102,18 @@ def load_to_database() -> None:
         """
         data = [tuple(row) for row in df.to_numpy()]
         execute_values(cur, insert_query, data)
+        inserted = cur.rowcount  # actual inserts, excluding ON CONFLICT skips
         conn.commit()
 
-        logger.info(f"✅ Inserted {len(df)} rows into '{TARGET_DB}.users'")
+        skipped = len(df) - inserted
+        logger.info(
+            f"✅ Inserted {inserted} new row(s) into '{TARGET_DB}.users' "
+            f"({skipped} duplicate(s) skipped via ON CONFLICT)."
+        )
 
-    except Exception as e:
-        logger.error(f"❌ Error inserting data: {e}")
+        cur.close()
     finally:
-        if 'cur' in locals(): cur.close()  # noqa: E701
-        if 'conn' in locals(): conn.close()  # noqa: E701
+        conn.close()
 
 
 if __name__ == "__main__":

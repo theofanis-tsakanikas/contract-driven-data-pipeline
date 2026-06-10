@@ -31,7 +31,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install test dependencies
-        run: pip install pyspark==3.5.2 pandas==2.1.4 boto3==1.42.73 pytest
+        # faker: the generator anomaly-injection tests. psycopg2-binary: the loader
+        # module imports psycopg2 at module level (the tests mock the *calls*, but
+        # the import must still resolve to collect the module).
+        run: pip install pyspark==3.5.2 pandas==2.1.4 boto3==1.42.73 faker==24.0.0 psycopg2-binary==2.9.9 pytest
       - name: Run PySpark transformation tests
         # local[1] + low driver memory keeps Spark within the GitHub runner (~7GB).
         env:
@@ -43,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:13
+        image: postgres:16
         env:
           POSTGRES_USER: airflow
           POSTGRES_PASSWORD: airflow
@@ -93,3 +96,30 @@ jobs:
           assert count == 2, f"expected 2 rows, got {count}"
           print(f"OK: {count} rows loaded")
           PY
+
+  dag-validate:
+    # Static DAG integrity checks (DagBag import + structure), isolated from the
+    # PySpark `test` job because Airflow's pins are heavy and would clash with the
+    # Spark stack. Airflow + providers are resolved via the official 2.11.0 / py3.12
+    # constraints file; provider versions are left to the constraints (pinning
+    # apache-spark==4.8.1 here makes the resolve impossible).
+    runs-on: ubuntu-latest
+    env:
+      AIRFLOW_HOME: /tmp/airflow-home
+      # boto3 client is built at import of a sibling script on sys.path; give it a region.
+      AWS_DEFAULT_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Airflow + providers (constrained)
+        run: |
+          pip install \
+            "apache-airflow==2.11.0" \
+            "apache-airflow-providers-apache-spark" \
+            "apache-airflow-providers-amazon" \
+            pytest \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.11.0/constraints-3.12.txt"
+      - name: Run DAG integrity tests
+        run: pytest tests/test_dag_integrity.py -q
