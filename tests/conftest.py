@@ -10,6 +10,11 @@ import pytest
 # so set a default before the module is imported anywhere in the test session.
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
+# Point Spark worker processes at the same interpreter as the driver; otherwise the
+# workers default to the system Python and Spark fails with PYTHON_VERSION_MISMATCH.
+os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
+os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
+
 # The ETL scripts live in scripts/ and are not packaged; put them on sys.path.
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))

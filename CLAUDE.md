@@ -13,8 +13,10 @@ s3-spark-pg-etl/
 │   └── s3-spark-pg-etl.py
 ├── scripts/                    # ETL stage logic
 │   ├── generate_dirty_data_S3.py   # ingestion: Faker → S3
-│   ├── clean_dirty_data_S3.py      # transform: PySpark; clean_dataframe() is the pure, tested core
+│   ├── data_contract.py            # declarative data contract (rules + PII class) — single source of truth + data-dictionary generator
+│   ├── clean_dirty_data_S3.py      # transform: PySpark; clean_dataframe (accepts) + rejected_dataframe (provenance) + data_quality_report
 │   └── load_to_db_final.py         # load: bulk upsert into PostgreSQL
+├── docs/governance/            # Generated DATA_DICTIONARY.md (contract + PII classification; CI --check keeps it in sync)
 ├── dbt/                        # dbt silver/analytics layer on user_data.users
 │   ├── dbt_project.yml
 │   ├── profiles.yml
@@ -169,6 +171,12 @@ Models (silver/analytics on `public.users` in `user_data`):
   you want metrics collected.
 - **Empty result set.** If PySpark filters out every row, `clean_data.csv` is empty and
   `load_to_db_final.py` short-circuits with a warning (no rows inserted).
+- **Rejects + DQ report are run artifacts.** The clean task now also writes
+  `data/rejected_data.csv` (failing rows + `rejection_reason`) and `data/dq_report.json`
+  (accept rate, rejections by reason) — both under the gitignored `data/` mount. The
+  validation rules live once in `scripts/data_contract.py`; regenerate the committed
+  `docs/governance/DATA_DICTIONARY.md` with `python scripts/data_contract.py` (CI's
+  `--check` fails if it drifts from the contract).
 - **Spark master override.** As noted above, `local[*]` is hardcoded; the standalone
   Spark containers don't participate.
 - **dbt dependency isolation.** dbt is intentionally in its own venv. Do **not** add

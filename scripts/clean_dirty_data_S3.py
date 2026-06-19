@@ -7,16 +7,31 @@ key (``raw/dt=YYYY-MM-DD/...``) so every run leaves an auditable raw-zone histor
 Configuration is read from environment variables (``S3_BUCKET_NAME``, ``S3_FILE_KEY``,
 ``LOCAL_DIRTY_PATH``, ``LOCAL_CLEAN_FOLDER``, ``LOCAL_CLEAN_PATH``).
 """
-from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import col, trim, length, md5, concat_ws
+from pyspark.sql import SparkSession, DataFrame, Column
+from pyspark.sql.functions import col, trim, length, md5, concat_ws, when, lit
 from pyspark.sql.types import IntegerType
 from pyspark.sql.types import StructType, StructField, StringType
 import boto3
 import os
-import glob 
+import glob
 import shutil
+import json
+from dataclasses import dataclass, field
+from functools import reduce
+from operator import and_
 from botocore.exceptions import ClientError
 import logging
+
+from data_contract import (
+    CONTRACT,
+    CLEAN_COLUMNS,
+    INT_RANGE,
+    NON_EMPTY,
+    REGEX,
+    SURROGATE_KEY,
+    SURROGATE_SOURCES,
+    FieldRule,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -44,101 +59,192 @@ def download_from_s3(bucket_name: str, s3_file_key: str, local_dirty_path: str) 
         logger.error(f"❌ Error downloading file from S3: {e}")
         raise
 
+def _prepared(df: DataFrame) -> DataFrame:
+    """Normalise raw columns: trim the string fields and cast age to int.
+
+    Both the accept path (``clean_dataframe``) and the reject path
+    (``rejected_dataframe``) operate on this normalised frame, so they evaluate the
+    contract against exactly the same values.
+    """
+    for field_name in ("name", "email", "phone", "zip_code", "city"):
+        df = df.withColumn(field_name, trim(col(field_name)))
+    return df.withColumn("age", col("age").cast(IntegerType()))
+
+
+def _rule_ok(rule: FieldRule) -> Column:
+    """The null-safe 'this field is valid' predicate for one contract rule.
+
+    Null-safe by construction (a null value fails every rule), so the accept set and
+    the rejected complement are provably exhaustive — every row lands in exactly one.
+    """
+    c = col(rule.field)
+    if rule.kind == NON_EMPTY:
+        return c.isNotNull() & (length(c) > 0)
+    if rule.kind == REGEX:
+        return c.isNotNull() & c.rlike(rule.pattern)
+    if rule.kind == INT_RANGE:
+        return c.isNotNull() & (c >= rule.minimum) & (c <= rule.maximum)
+    raise ValueError(f"unknown rule kind: {rule.kind!r}")
+
+
 def clean_dataframe(df: DataFrame) -> DataFrame:
     """Apply the data contract to a raw Spark DataFrame and return the cleaned one.
 
-    Pure transformation (no I/O) so it can be unit-tested in isolation:
-    trims strings, filters invalid rows, casts age, drops the source id,
-    derives the deterministic user_id hash, and reorders columns.
+    Pure transformation (no I/O) so it can be unit-tested in isolation: normalises
+    fields, keeps only rows satisfying every contract rule, drops the source id,
+    derives the deterministic ``user_id`` MD5 pseudonym, and reorders columns. The
+    validation rules come from ``data_contract.CONTRACT`` (single source of truth).
     """
-    # Clean string fields
-    df = df.withColumn("name", trim(col("name"))) \
-           .withColumn("email", trim(col("email"))) \
-           .withColumn("phone", trim(col("phone"))) \
-           .withColumn("zip_code", trim(col("zip_code"))) \
-           .withColumn("city", trim(col("city")))
+    df = _prepared(df)
 
-    # Filter invalid data
-    df = df.filter(col("name").isNotNull() & (length(col("name")) > 0)) \
-           .filter(col("email").rlike(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")) \
-           .filter(col("phone").rlike(r"^69\d{8}$")) \
-           .filter(col("zip_code").rlike(r"^\d{5}$"))
+    # Keep rows that satisfy EVERY contract rule (conjunction of the per-field predicates).
+    valid = reduce(and_, (_rule_ok(rule) for rule in CONTRACT))
+    df = df.filter(valid)
 
-    # Convert age to integer and filter out invalid ages
-    df = df.withColumn("age", col("age").cast(IntegerType())) \
-           .filter((col("age") >= 18) & (col("age") <= 99)) \
-           .filter(col("city").isNotNull() & (length(col("city")) > 0))
-
-    # Drop id if exists
+    # Drop the source id if present.
     if "id" in df.columns:
         df = df.drop("id")
 
-    # Create user_id hash
-    df = df.withColumn("user_id", md5(concat_ws("||", "name", "email", "phone"))) # Generate a unique user_id based on name, email, and phone
+    # Deterministic pseudonymised surrogate key (no natural key is stored downstream).
+    df = df.withColumn(SURROGATE_KEY, md5(concat_ws("||", *SURROGATE_SOURCES)))
 
-    # Reorder columns
-    desired_order = ["user_id", "name", "email", "phone", "zip_code", "age", "city"]
-    df = df.select(*desired_order)
+    return df.select(*CLEAN_COLUMNS)
 
-    return df
 
-def clean_data_with_spark(local_dirty_path: str, local_clean_folder: str, local_clean_path: str) -> None:
-    """Clean dirty CSV data using PySpark."""
+def rejected_dataframe(df: DataFrame) -> DataFrame:
+    """Return the rows the contract rejects, tagged with a ``rejection_reason``.
 
+    The exact complement of :func:`clean_dataframe`: each rejected row carries the
+    first contract rule it violated (in contract order), giving full lineage for why
+    a record never reached the warehouse — instead of vanishing silently.
+    """
+    df = _prepared(df)
+
+    reason = None
+    for rule in CONTRACT:
+        fails = ~_rule_ok(rule)
+        reason = when(fails, lit(rule.reason)) if reason is None else reason.when(fails, lit(rule.reason))
+
+    return df.withColumn("rejection_reason", reason).filter(col("rejection_reason").isNotNull())
+
+
+@dataclass(frozen=True)
+class DQReport:
+    """Data-quality summary for one cleaning run."""
+
+    total: int
+    accepted: int
+    rejected: int
+    by_reason: dict = field(default_factory=dict)
+
+    @property
+    def accept_rate(self) -> float:
+        return 1.0 if self.total == 0 else self.accepted / self.total
+
+    def to_dict(self) -> dict:
+        return {
+            "total": self.total,
+            "accepted": self.accepted,
+            "rejected": self.rejected,
+            "accept_rate": round(self.accept_rate, 4),
+            "rejected_by_reason": self.by_reason,
+        }
+
+
+def data_quality_report(df: DataFrame) -> DQReport:
+    """Compute the data-quality summary (total / accepted / rejected-by-reason) for a batch."""
+    df = df.cache()
+    try:
+        total = df.count()
+        by_reason = {
+            row["rejection_reason"]: row["count"]
+            for row in rejected_dataframe(df).groupBy("rejection_reason").count().collect()
+        }
+        rejected = sum(by_reason.values())
+        return DQReport(total=total, accepted=total - rejected, rejected=rejected, by_reason=by_reason)
+    finally:
+        df.unpersist()
+
+def _write_single_csv(df: DataFrame, temp_folder: str, final_path: str) -> None:
+    """Write a DataFrame as one header CSV at ``final_path`` (coalesce + move)."""
+    df.coalesce(1).write.option("header", True).option("encoding", "UTF-8").mode("overwrite").csv(temp_folder)
+    csv_files = glob.glob(os.path.join(temp_folder, "*.csv"))
+    if not csv_files:
+        raise FileNotFoundError(f"No CSV file found in {temp_folder}")
+    shutil.move(csv_files[0], final_path)
+    shutil.rmtree(temp_folder)
+
+
+def clean_data_with_spark(
+    local_dirty_path: str,
+    local_clean_folder: str,
+    local_clean_path: str,
+    local_rejects_path: str | None = None,
+    dq_report_path: str | None = None,
+) -> None:
+    """Clean dirty CSV data using PySpark, quarantine rejects, and emit a DQ report.
+
+    The cleaned output is written exactly as before. In addition, rows that fail the
+    contract are quarantined to ``local_rejects_path`` with their ``rejection_reason``
+    (lineage), and a data-quality summary is written to ``dq_report_path`` and logged.
+    """
     spark = SparkSession.builder \
         .master("local[*]") \
         .appName("Clean Dirty Data") \
         .config("spark.driver.memory", "2g") \
         .getOrCreate()
 
-
     if not os.path.exists(local_dirty_path):
         logger.error(f"❌ File not found: {local_dirty_path}")
         return
 
     # Load dirty CSV data into a Spark DataFrame with the expected schema
-    df = spark.read \
+    raw = spark.read \
         .option("header", "true") \
         .option("encoding", "UTF-8") \
         .schema(EXPECTED_SCHEMA) \
-        .csv(local_dirty_path)
+        .csv(local_dirty_path) \
+        .cache()
 
-    # Apply the data contract (pure, testable transformation)
-    df = clean_dataframe(df)
+    # Data-quality report (total / accepted / rejected-by-reason) for this run.
+    report = data_quality_report(raw)
+    logger.info("📊 Data quality: %s", json.dumps(report.to_dict()))
+    if dq_report_path:
+        with open(dq_report_path, "w", encoding="utf-8") as fh:
+            json.dump(report.to_dict(), fh, indent=2)
+        logger.info(f"✅ Data-quality report written to: {dq_report_path}")
 
-    # Save locally (same logic as before) as a single CSV file with UTF-8 encoding and header
-    df.coalesce(1) \
-      .write \
-      .option("header", True) \
-      .option("encoding", "UTF-8") \
-      .mode("overwrite") \
-      .csv(local_clean_folder)
-
-    # Move the generated CSV file from the Spark output folder to the desired location
-    csv_files = glob.glob(os.path.join(local_clean_folder, "*.csv")) # Find the generated CSV file in the Spark output folder
-    if not csv_files:
-        raise FileNotFoundError(f"No CSV file found in {local_clean_folder}")
-
-    shutil.move(csv_files[0], local_clean_path) # Move the generated CSV file to the desired location
-    shutil.rmtree(local_clean_folder) # Clean up the temporary Spark output folder
+    # Accepted rows → the cleaned output (unchanged behaviour).
+    _write_single_csv(clean_dataframe(raw), local_clean_folder, local_clean_path)
     logger.info(f"✅ Cleaned data saved locally to: {local_clean_path}")
 
+    # Rejected rows → quarantine with the reason (lineage), instead of vanishing.
+    if local_rejects_path and report.rejected > 0:
+        rejects_folder = local_rejects_path + "_temp"
+        _write_single_csv(rejected_dataframe(raw), rejects_folder, local_rejects_path)
+        logger.info(f"🗂️  Quarantined {report.rejected} rejected row(s) to: {local_rejects_path}")
+
+    raw.unpersist()
     spark.stop()
 
 def main() -> None:
-    """Main ETL workflow: Download → Clean. The raw S3 object is retained."""
+    """Main ETL workflow: Download → Clean (+ quarantine rejects + DQ report). Raw S3 object retained."""
     # --- AWS S3 Configuration ---
     bucket_name = os.getenv("S3_BUCKET_NAME", "my-dirty-data-bucket")
     s3_file_key = os.getenv("S3_FILE_KEY", "dirty-data.csv")
     local_dirty_path = os.getenv("LOCAL_DIRTY_PATH", "/opt/airflow/data/dirty_data.csv")
     local_clean_folder = os.getenv("LOCAL_CLEAN_FOLDER", "/opt/airflow/data/clean_data_temp")
     local_clean_path = os.getenv("LOCAL_CLEAN_PATH", "/opt/airflow/data/clean_data.csv")
+    local_rejects_path = os.getenv("LOCAL_REJECTS_PATH", "/opt/airflow/data/rejected_data.csv")
+    dq_report_path = os.getenv("DQ_REPORT_PATH", "/opt/airflow/data/dq_report.json")
 
     # Step 1: Download dirty data from S3
     download_from_s3(bucket_name, s3_file_key, local_dirty_path)
 
-    # Step 2: Clean the data locally with Spark and save the cleaned data locally
-    clean_data_with_spark(local_dirty_path, local_clean_folder, local_clean_path)
+    # Step 2: Clean the data locally with Spark; quarantine rejects + emit the DQ report
+    clean_data_with_spark(
+        local_dirty_path, local_clean_folder, local_clean_path, local_rejects_path, dq_report_path
+    )
 
 if __name__ == "__main__":
     main()

@@ -225,24 +225,16 @@ docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 
 ## 📊 ETL Pipeline Breakdown
 
-**1. Data Contract & Cleaning (PySpark)**
+**1. Data Contract, Cleaning & Lineage (PySpark)**
 
-The transformation step strictly enforces a data contract using Spark's StructType and performs a thorough data preparation:
+The transformation step enforces an **explicit, declared data contract** — a single source of truth (`scripts/data_contract.py`) the accept filter, the rejection reasons, the PII classification, and the generated [data dictionary](docs/governance/DATA_DICTIONARY.md) are all built from, so they can never disagree:
 
 * **Schema Enforcement:** Uses StructType to force strict data types upon reading the CSV file.
-* **Standardization:** Trims whitespaces from all string columns (Name, Email, Phone, Zip Code, City).
-* **Type Casting:** Converts the Age column from String to IntegerType.
-* **Advanced Filtering (Regex & Nulls):**
-  - Drops rows with null or empty names and cities.
-  - Filters emails using strict regex validation.
-  - Ensures standard structure for Greek mobile phones (starting with 69 and followed by 8 digits).
-  - Keeps only 5-digit zip codes.
-  - Keeps only realistic adult ages (between 18 and 99 years old).
-* **Column Pruning & Feature Engineering:**
-  - Drops the original auto-generated ID column.
-  - Generates a deterministic surrogate user_id using an MD5 hash (name || email || phone).
-* **Data Reshaping:** Reorders columns to a clean, predefined desired layout.
-* **File I/O & Sharding Management:** Uses coalesce(1) to efficiently reduce partitions without a full network shuffle, producing a single unified output CSV file. It then cleans up Spark's temporary directory and renames the final output.
+* **Declared validation rules** (from the contract): non-empty name/city, regex-validated email, Greek mobile (`69` + 8 digits), 5-digit zip code, and adult age `[18, 99]`.
+* **Rejected-row provenance (lineage):** Failing rows are no longer silently dropped — they are **quarantined** to a rejects output tagged with the first rule they violated (`rejection_reason`), so any record that never reached the warehouse is traceable to *why*.
+* **Per-run data-quality report:** Every run emits an accept-rate + rejections-by-reason summary (`dq_report.json`), logged in the Airflow task — you can *see* the data quality, not just trust it.
+* **PII handling, made explicit:** Direct identifiers (name, email, phone) are never stored as a natural key — the loaded `user_id` is a deterministic **MD5 pseudonym** of `name || email || phone`. Fields are classified (direct- vs quasi-identifier) at the data layer; the [data dictionary](docs/governance/DATA_DICTIONARY.md) is generated from the contract and CI fails if it drifts.
+* **File I/O & Sharding Management:** Uses coalesce(1) to produce a single unified output CSV for both the cleaned and the quarantined data.
 
 **2. PostgreSQL Bulk Ingestion**
 Instead of iterative INSERT statements, the loading script uses psycopg2's cursor extension for optimal performance using execute_values. It uses an ON CONFLICT (user_id) DO NOTHING logic to avoid duplicate entries.
