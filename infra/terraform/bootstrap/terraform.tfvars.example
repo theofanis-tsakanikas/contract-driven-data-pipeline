@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars and fill in. Run once, locally, with admin AWS creds.
+
+aws_region        = "eu-central-1"
+github_repository = "theofanis-tsakanikas/s3-spark-pg-etl"
+state_bucket_name = "your-globally-unique-tfstate-bucket"
+
+# Optional overrides (defaults shown):
+# project_name    = "s3-spark-pg-etl"
+# lock_table_name = "s3-spark-pg-etl-tf-lock"

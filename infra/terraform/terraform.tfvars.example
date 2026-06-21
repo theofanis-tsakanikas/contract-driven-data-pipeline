@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored (it may
+# contain account-specific values), as is the local state that holds the
+# generated IAM secret.
+
+aws_region            = "eu-central-1"
+data_lake_bucket_name = "your-globally-unique-bucket-name"
+
+# Optional overrides (defaults shown):
+# project_name                   = "s3-spark-pg-etl"
+# raw_zone_expiration_days       = 30
+# athena_results_expiration_days = 14
+# create_pipeline_user           = true
+# glue_crawler_schedule          = "cron(0 6 * * ? *)"   # daily 06:00 UTC; "" = on-demand

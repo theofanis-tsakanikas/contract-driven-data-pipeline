@@ -59,6 +59,33 @@ def download_from_s3(bucket_name: str, s3_file_key: str, local_dirty_path: str) 
         logger.error(f"❌ Error downloading file from S3: {e}")
         raise
 
+
+def _zone_key(raw_key: str, zone: str, filename: str) -> str:
+    """Map the raw-zone key to a sibling zone, preserving the date partition.
+
+    ``raw/dt=2026-06-10/dirty-data.csv`` → ``rejects/dt=2026-06-10/rejected_data.csv``.
+    Keeps rejects and DQ reports auditable in the lake next to the raw object they
+    came from, rather than only on the local (gitignored) data mount.
+    """
+    partition = next((p for p in raw_key.split("/") if p.startswith("dt=")), None)
+    prefix = f"{zone}/{partition}" if partition else zone
+    return f"{prefix}/{filename}"
+
+
+def _upload_artifact(bucket_name: str, local_path: str, s3_key: str) -> None:
+    """Upload a run artifact (rejects / DQ report) back to S3. Non-fatal on failure.
+
+    The cleaned data has already been produced and loaded; a failed governance-artifact
+    upload should be logged loudly but must not fail the whole clean stage.
+    """
+    if not bucket_name or not os.path.exists(local_path):
+        return
+    try:
+        s3_client.upload_file(local_path, bucket_name, s3_key)
+        logger.info(f"☁️  Uploaded '{local_path}' to s3://{bucket_name}/{s3_key}")
+    except ClientError as e:
+        logger.warning(f"⚠️ Could not upload '{local_path}' to S3 (artifact, non-fatal): {e}")
+
 def _prepared(df: DataFrame) -> DataFrame:
     """Normalise raw columns: trim the string fields and cast age to int.
 
@@ -181,18 +208,29 @@ def clean_data_with_spark(
     local_clean_path: str,
     local_rejects_path: str | None = None,
     dq_report_path: str | None = None,
+    bucket_name: str | None = None,
+    raw_s3_key: str | None = None,
 ) -> None:
     """Clean dirty CSV data using PySpark, quarantine rejects, and emit a DQ report.
 
     The cleaned output is written exactly as before. In addition, rows that fail the
     contract are quarantined to ``local_rejects_path`` with their ``rejection_reason``
     (lineage), and a data-quality summary is written to ``dq_report_path`` and logged.
+    When ``bucket_name`` / ``raw_s3_key`` are given, the rejects and DQ report are also
+    uploaded back to the lake under date-partitioned ``rejects/`` and ``quality/`` zones.
     """
-    spark = SparkSession.builder \
-        .master("local[*]") \
-        .appName("Clean Dirty Data") \
-        .config("spark.driver.memory", "2g") \
-        .getOrCreate()
+    # Master is configurable: when SPARK_MASTER is set (e.g. the DAG/compose set it
+    # to spark://spark-master:7077) the job runs on the standalone cluster; unset
+    # (standalone script run, CI) it falls back to in-process local[*]. No Python
+    # UDFs are used — the transform is pure Spark SQL — so no --py-files shipping
+    # of data_contract.py to executors is required.
+    builder = (
+        SparkSession.builder
+        .appName("Clean Dirty Data")
+        .config("spark.driver.memory", "2g")
+        .master(os.getenv("SPARK_MASTER", "local[*]"))
+    )
+    spark = builder.getOrCreate()
 
     if not os.path.exists(local_dirty_path):
         logger.error(f"❌ File not found: {local_dirty_path}")
@@ -213,6 +251,8 @@ def clean_data_with_spark(
         with open(dq_report_path, "w", encoding="utf-8") as fh:
             json.dump(report.to_dict(), fh, indent=2)
         logger.info(f"✅ Data-quality report written to: {dq_report_path}")
+        if raw_s3_key:
+            _upload_artifact(bucket_name, dq_report_path, _zone_key(raw_s3_key, "quality", "dq_report.json"))
 
     # Accepted rows → the cleaned output (unchanged behaviour).
     _write_single_csv(clean_dataframe(raw), local_clean_folder, local_clean_path)
@@ -223,6 +263,8 @@ def clean_data_with_spark(
         rejects_folder = local_rejects_path + "_temp"
         _write_single_csv(rejected_dataframe(raw), rejects_folder, local_rejects_path)
         logger.info(f"🗂️  Quarantined {report.rejected} rejected row(s) to: {local_rejects_path}")
+        if raw_s3_key:
+            _upload_artifact(bucket_name, local_rejects_path, _zone_key(raw_s3_key, "rejects", "rejected_data.csv"))
 
     raw.unpersist()
     spark.stop()
@@ -241,9 +283,11 @@ def main() -> None:
     # Step 1: Download dirty data from S3
     download_from_s3(bucket_name, s3_file_key, local_dirty_path)
 
-    # Step 2: Clean the data locally with Spark; quarantine rejects + emit the DQ report
+    # Step 2: Clean the data locally with Spark; quarantine rejects + emit the DQ
+    # report, and upload those governance artifacts back to the lake.
     clean_data_with_spark(
-        local_dirty_path, local_clean_folder, local_clean_path, local_rejects_path, dq_report_path
+        local_dirty_path, local_clean_folder, local_clean_path, local_rejects_path, dq_report_path,
+        bucket_name=bucket_name, raw_s3_key=s3_file_key,
     )
 
 if __name__ == "__main__":

@@ -28,9 +28,13 @@ s3-spark-pg-etl/
 │   ├── init.sh                 # db init + admin user bootstrap
 │   ├── requirements-airflow.txt
 │   ├── requirements-spark.txt
-│   └── spark-defaults.conf
+│   ├── spark-defaults.conf
+│   └── terraform/              # IaC: data-lake bucket + lifecycle, least-priv IAM, Glue crawler + Athena
+│       └── bootstrap/          # one-time: remote-state bucket + lock table + GitHub OIDC deployer role
 ├── tests/                      # pytest unit tests for the PySpark transform
-├── .github/workflows/ci.yml    # lint + test + smoke CI
+├── Makefile                    # dev ergonomics: make up / run / tf-apply / crawler ... (make = help)
+├── .github/workflows/ci.yml    # lint + test + smoke + dag-validate CI (the data/code plane)
+├── .github/workflows/terraform.yml  # Terraform plan (PR) + apply (manual button, OIDC) — the infra plane
 ├── data/  logs/                # runtime mounts (gitignored)
 ├── .env / .env.example         # configuration (.env is gitignored)
 └── README.md
@@ -71,11 +75,14 @@ docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 
 UIs: Airflow http://localhost:8088 · pgAdmin http://localhost:5050 · Spark master http://localhost:8080
 
-> **Note — the standalone Spark cluster is currently decorative.** The transform
-> script forces `SparkSession.builder.master("local[*]")`, so Spark runs in-process
-> inside `airflow-worker`. The `spark-master`/`spark-worker` services are not used by
-> the pipeline as written. The declared `AIRFLOW_CONN_SPARK_DEFAULT` points at the
-> cluster so the connection is consistent if you later remove the hardcoded master.
+> **Note — Spark master is configurable.** The transform script uses
+> `SparkSession.builder.master(os.getenv("SPARK_MASTER", "local[*]"))`. Compose sets
+> `SPARK_MASTER=spark://spark-master:7077` in `airflow-common-env`, so DAG runs submit
+> to the standalone `spark-master`/`spark-worker` cluster (the `spark-clean-task` also
+> sets `conn_id='spark_default'`). Blank out `SPARK_MASTER` (or set it to `local[*]`)
+> to run Spark in-process inside `airflow-worker` instead — which is what standalone
+> script runs and the CI tests do, since they never set the variable. The transform
+> uses only Spark-SQL built-ins (no Python UDFs), so executors need no `--py-files`.
 
 ## Triggering the DAG (`dag_id: s3-to-postgres-etl`)
 
@@ -116,7 +123,7 @@ loaded by compose via `--env-file` and `env_file`. Source of each:
 | `PGADMIN_MAIL`, `PGADMIN_PASS` | pgAdmin login |
 | `AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY` | dedicated IAM user with S3 access |
 | `AWS_DEFAULT_REGION` | bucket region (e.g. `eu-central-1`) |
-| `S3_BUCKET_NAME` | globally-unique bucket name (created once; raw objects are retained per run, never deleted) |
+| `S3_BUCKET_NAME` | globally-unique bucket name (provisioned by `infra/terraform`; the pipeline only reads/writes objects, raw zone expired by a lifecycle rule) |
 | `S3_FILE_KEY` | fallback object key; the DAG overrides it per run with `raw/dt=<ds>/dirty-data.csv` |
 | `LOCAL_REJECTS_PATH`, `DQ_REPORT_PATH` | quarantined rejects (with `rejection_reason`) + the per-run data-quality summary, under `/opt/airflow/data` |
 | `LOCAL_DIRTY_PATH`, `LOCAL_CLEAN_FOLDER`, `LOCAL_CLEAN_PATH` | container staging paths under `/opt/airflow/data` |
@@ -132,9 +139,13 @@ interpolated from `.env`):
 - `AIRFLOW_CONN_AWS_DEFAULT` → IAM creds + region
 - `AIRFLOW_CONN_POSTGRES_DEFAULT` → target Postgres
 
-> These are **declared but not yet consumed** by the scripts (the scripts use boto3 /
-> psycopg2 / a hardcoded Spark master directly). They make the stack reproducible and
-> ready for a future migration to Airflow hooks (`S3Hook`, `PostgresHook`).
+> These are **consumed by the DAG tasks** (not the scripts, which stay standalone- and
+> unit-testable): `run_ingestion` resolves S3 credentials via `S3Hook(aws_conn_id="aws_default")`
+> and `run_loading` reads `postgres_default` via `BaseHook.get_connection`, injecting a
+> connection factory into the loader. `spark-clean-task` submits through `spark_default`.
+> The ETL scripts themselves still use plain boto3/psycopg2 by default (dependency
+> injection), so credentials live in Airflow's connection store at orchestration time
+> while the modules remain importable without Airflow (CI `test`/`smoke` jobs).
 
 ## dbt
 
@@ -163,31 +174,52 @@ Models (silver/analytics on `public.users` in `user_data`):
   `local[1]`), `dag-validate` (DagBag integrity), and a `smoke` job that loads a CSV fixture
   into a `postgres:16` service container and asserts the row count.
 
+## Infrastructure & deploy (two planes)
+
+Keep the **control plane** (infra) and **data plane** (the ETL run) separate — they
+have different lifecycles and are driven by different tools.
+
+- **Control plane — Terraform.** Provisions the AWS side (data-lake bucket + lifecycle,
+  least-privilege pipeline IAM user, Glue crawler + Athena). One-time `infra/terraform/bootstrap`
+  (local, admin creds) creates the **remote-state bucket + DynamoDB lock + GitHub OIDC
+  deployer role**; the main config then uses that S3 backend. Apply it via `make tf-apply`
+  locally, **or** via `.github/workflows/terraform.yml`: every PR touching `infra/terraform/**`
+  gets a read-only `plan`; the real `apply` is the manual *Run workflow* button, gated by the
+  `production` environment's approval, authenticating with **OIDC (no stored AWS keys)**.
+  CI reads GitHub **Variables** (`AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `TF_STATE_BUCKET`,
+  `TF_LOCK_TABLE`, `DATA_LAKE_BUCKET_NAME`).
+- **Data plane — Airflow.** The ETL itself is **not** run from GitHub/Terraform. Bring the
+  stack up (`make up`) and trigger the DAG with ▶ in the UI (or `make run`). It is
+  **manual-only by design** (`schedule=None`) — there is no cron.
+- **Makefile** is the local front door: `make` (help), `make up`, `make run`, `make tf-apply`,
+  `make crawler`, `make test`, ...
+
 ## Known failure modes & gotchas
 
-- **Raw objects are retained.** Each DAG run writes its raw CSV to a date-partitioned
-  key (`raw/dt=<ds>/dirty-data.csv`) and nothing is deleted afterwards — the bucket
-  accumulates a raw-zone history. Clean up old partitions with an S3 lifecycle rule
-  if cost matters.
+- **Raw zone is date-partitioned and lifecycle-managed.** Each DAG run writes its raw
+  CSV to `raw/dt=<ds>/dirty-data.csv` (an auditable raw-zone history). The Terraform
+  `expire-raw-zone` lifecycle rule (`infra/terraform/s3.tf`, default 30 days) reaps old
+  partitions so the bucket doesn't grow unbounded.
 - **AWS creds / region.** Missing/invalid `AWS_*` → ingestion fails at upload, or boto3
   raises `NoRegionError`. Region must match where the bucket can be created.
-- **StatsD host doesn't exist.** Compose sets `AIRFLOW__METRICS__STATSD_HOST: statsd-exporter`
-  but there is **no `statsd-exporter` service**. Metrics are UDP, so they silently drop —
-  harmless, the line is intentionally kept. Add a `statsd-exporter`/Prometheus service if
-  you want metrics collected.
+- **StatsD metrics.** Compose runs a `statsd-exporter` service (`prom/statsd-exporter`)
+  that receives Airflow's UDP StatsD metrics on `:9125` and exposes a Prometheus scrape
+  endpoint on `localhost:9102/metrics`. There is no Prometheus/Grafana wired up yet — add
+  one pointing at `statsd-exporter:9102` if you want the metrics stored and graphed.
 - **Empty result set.** If PySpark filters out every row, `clean_data.csv` is empty and
   `load_to_db_final.py` short-circuits with a warning (no rows inserted).
-- **Rejects + DQ report are run artifacts.** The clean task now also writes
+- **Rejects + DQ report are run artifacts.** The clean task also writes
   `data/rejected_data.csv` (failing rows + `rejection_reason`) and `data/dq_report.json`
-  (accept rate, rejections by reason) — both under the gitignored `data/` mount. The
-  validation rules live once in `scripts/data_contract.py`; regenerate the committed
-  `docs/governance/DATA_DICTIONARY.md` with `python scripts/data_contract.py` (CI's
-  `--check` fails if it drifts from the contract).
-- **Spark master override.** As noted above, `local[*]` is hardcoded; the standalone
-  Spark containers don't participate.
+  (accept rate, rejections by reason) under the gitignored `data/` mount, **and** uploads
+  them back to the lake under date-partitioned `rejects/dt=<ds>/` and `quality/dt=<ds>/`
+  zones (non-fatal if that upload fails). The validation rules live once in
+  `scripts/data_contract.py`; regenerate the committed `docs/governance/DATA_DICTIONARY.md`
+  with `python scripts/data_contract.py` (CI's `--check` fails if it drifts).
+- **Spark master.** Configurable via `SPARK_MASTER` (see the cluster note above); compose
+  defaults it to the standalone cluster, CI/standalone runs fall back to `local[*]`.
 - **dbt dependency isolation.** dbt is intentionally in its own venv. Do **not** add
   `dbt-postgres` to `requirements-airflow.txt` — it can conflict with Airflow's pins.
 - **`docker compose` env file path.** Always pass both `--env-file .env` and
   `-f infra/docker-compose.yml` (the compose file expects `.env` at repo root).
-- **`AIRFLOW__WEBSERVER__BASE_URL`** is set to `http://localhost:8080` in compose, but the
-  webserver is published on host port `8088` — cosmetic mismatch for generated links only.
+- **`AIRFLOW__WEBSERVER__BASE_URL`** is set to `http://localhost:8088`, matching the
+  published host port — generated UI links resolve correctly.

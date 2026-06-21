@@ -78,9 +78,9 @@ flowchart TD
 
     GEN["generate_dirty_data_S3.py<br/>Faker · 100 dirty rows"]
     S3["AWS S3 (retained)<br/>s3://&lt;S3_BUCKET_NAME&gt;/raw/dt=&lt;ds&gt;/dirty-data.csv"]
-    SPARK["clean_dirty_data_S3.py<br/>PySpark local[*] · data_contract.py · md5 user_id"]
+    SPARK["clean_dirty_data_S3.py<br/>PySpark (SPARK_MASTER: cluster or local[*]) · data_contract.py · md5 user_id"]
     CSV["Local staging<br/>/opt/airflow/data/clean_data.csv"]
-    REJ["Quarantine + DQ report<br/>rejected_data.csv · dq_report.json"]
+    REJ["Quarantine + DQ report<br/>local + S3 rejects/dt=&lt;ds&gt;/ · quality/dt=&lt;ds&gt;/"]
     PG[("PostgreSQL<br/>user_data.users")]
     STG["dbt: stg_users<br/>silver · email_domain, age_band"]
     M1["dbt: users_by_city"]

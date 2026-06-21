@@ -1,0 +1,8 @@
+# Copy to backend.hcl (gitignored) and fill from the bootstrap outputs:
+#   terraform -chdir=bootstrap output state_bucket   -> bucket
+#   terraform -chdir=bootstrap output lock_table     -> dynamodb_table
+# Then:  terraform init -backend-config=backend.hcl
+
+bucket         = "your-globally-unique-tfstate-bucket"
+region         = "eu-central-1"
+dynamodb_table = "s3-spark-pg-etl-tf-lock"

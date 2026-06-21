@@ -1,0 +1,13 @@
+# Terraform local state holds the generated IAM secret — never commit it.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+
+# Account-specific variable values.
+terraform.tfvars
+*.auto.tfvars
+
+# Partial-backend config (account-specific state bucket / lock table).
+backend.hcl
