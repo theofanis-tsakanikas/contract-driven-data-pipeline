@@ -93,11 +93,16 @@ def create_dirty_data(filepath: str) -> None:
 
     logger.info(f"✅ Dirty data saved to {filepath}")
 
-def upload_to_s3(local_filepath: str, bucket_name: str, s3_file_key: str) -> None:
-    """Upload the dirty data CSV to S3."""
+def upload_to_s3(client, local_filepath: str, bucket_name: str, s3_file_key: str) -> None:
+    """Upload the dirty data CSV to S3 using the given boto3 S3 ``client``.
+
+    The client is injected (not a module global) so the Airflow ``run_ingestion``
+    task can pass an ``S3Hook``-managed client (credentials from the Airflow
+    connection) while a standalone run passes a plain boto3 client.
+    """
     try:
         # Upload the local CSV file to the specified S3 bucket
-        s3_client.upload_file(local_filepath, bucket_name, s3_file_key)
+        client.upload_file(local_filepath, bucket_name, s3_file_key)
         logger.info(f"✅ File '{local_filepath}' successfully uploaded to S3 bucket '{bucket_name}' at '{s3_file_key}'.")
     except FileNotFoundError:
         logger.info(f"⚠️ The file '{local_filepath}' was not found.")
@@ -106,48 +111,27 @@ def upload_to_s3(local_filepath: str, bucket_name: str, s3_file_key: str) -> Non
     except ClientError as e:
         logger.info(f"⚠️ Error uploading file to S3: {e}")
 
-def create_bucket(bucket_name: str, region: str) -> None:
-    """Create an S3 bucket in any region dynamically."""
-    try:
-        # Check if the bucket already exists
-        s3_client.head_bucket(Bucket=bucket_name)
-        logger.info(f"⚠️ The bucket '{bucket_name}' already exists.")
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        if error_code in ('404', 'NoSuchBucket'):
-            try:
-                # Configure bucket creation parameters based on the region
-                bucket_config = {}
-                if region != "us-east-1":
-                    bucket_config['CreateBucketConfiguration'] = {'LocationConstraint': region}
-                
-                # Create the bucket with the appropriate configuration
-                s3_client.create_bucket(Bucket=bucket_name, **bucket_config)
-                
-                logger.info(f"✅ Bucket '{bucket_name}' created successfully in region '{region}'.")
-            except ClientError as create_err:
-                logger.error(f"❌ Error creating bucket: {create_err}")
-        else:
-            logger.error(f"❌ Error checking bucket existence: {e}")
-
 def main() -> None:
-    """Generate dirty data locally, ensure the S3 bucket exists, and upload the CSV."""
+    """Generate dirty data locally and upload the CSV to S3.
+
+    The data-lake bucket is provisioned out-of-band by Terraform (``infra/terraform``),
+    so this stage no longer creates it — it just writes into the existing bucket
+    (and therefore needs no ``s3:CreateBucket`` permission). Standalone entry point:
+    builds its own boto3 client. The Airflow DAG calls the functions above with an
+    ``S3Hook`` client instead.
+    """
     # File path for the local dirty data CSV
     local_csv_path = os.getenv("LOCAL_DIRTY_PATH")
-    
+
     # S3 bucket and file key configuration
     bucket_name = os.getenv("S3_BUCKET_NAME")
     s3_file_key = os.getenv("S3_FILE_KEY")
-    region = os.getenv("AWS_DEFAULT_REGION")
 
     # Create dirty data and save it locally
     create_dirty_data(local_csv_path)
 
-    # Create the bucket if it doesn't exist
-    create_bucket(bucket_name, region)
-
-    # Upload the local CSV file to S3
-    upload_to_s3(local_csv_path, bucket_name, s3_file_key)
+    # Upload the local CSV file to the (Terraform-provisioned) S3 bucket
+    upload_to_s3(s3_client, local_csv_path, bucket_name, s3_file_key)
 
 if __name__ == "__main__":
     main()

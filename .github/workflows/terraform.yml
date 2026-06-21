@@ -1,0 +1,79 @@
+name: Terraform
+
+# Infrastructure (control plane), separate from the data pipeline (which runs in
+# Airflow). PRs touching the Terraform get a read-only `plan`; the actual `apply`
+# is the manual "Run workflow" button, gated by the `production` environment's
+# approval. Auth is GitHub OIDC → AWS role (no stored AWS keys).
+
+on:
+  pull_request:
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "plan or apply"
+        type: choice
+        options: [plan, apply]
+        default: plan
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+
+defaults:
+  run:
+    working-directory: infra/terraform
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+  TF_VAR_data_lake_bucket_name: ${{ vars.DATA_LAKE_BUCKET_NAME }}
+
+jobs:
+  plan:
+    # Runs on every PR and on a manual "plan" dispatch.
+    if: github.event_name == 'pull_request' || inputs.action == 'plan'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+      - name: Format check
+        run: terraform fmt -check -recursive
+      - name: Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}"
+      - name: Validate
+        run: terraform validate
+      - name: Plan
+        run: terraform plan -input=false
+
+  apply:
+    # Only the manual "apply" dispatch. The `production` environment adds the
+    # required-reviewers approval gate before this job runs.
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+      - name: Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}"
+      - name: Apply
+        run: terraform apply -auto-approve -input=false

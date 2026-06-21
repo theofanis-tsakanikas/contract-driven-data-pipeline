@@ -20,16 +20,30 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def load_to_database() -> None:
-    """Read the cleaned CSV and bulk-upsert it into the target PostgreSQL database."""
-    #--- Load environment variables ---
-    DB_HOST = os.getenv("DB_HOST")
-    DB_PORT = os.getenv("DB_PORT")
+def load_to_database(connect=None) -> None:
+    """Read the cleaned CSV and bulk-upsert it into the target PostgreSQL database.
+
+    ``connect`` is an optional factory ``connect(dbname) -> connection`` (dependency
+    injection). The Airflow ``run_loading`` task passes one backed by the
+    ``postgres_default`` Airflow connection (credentials as code); when it is None
+    (standalone run / CI), a default factory reads the ``DB_*`` env vars and uses
+    psycopg2 directly — so this module stays runnable and unit-testable without Airflow.
+    """
+    #--- Load environment variables (config, not secrets) ---
     DEFAULT_DB = os.getenv("DEFAULT_DB") # Database to connect to for creating the target database (e.g., "postgres")
     TARGET_DB = os.getenv("TARGET_DB") # Database to load data into (e.g., "clean_data_db")
-    DB_USER = os.getenv("DB_USER")
-    DB_PASS = os.getenv("DB_PASS")
     LOCAL_CLEAN_PATH = os.getenv("LOCAL_CLEAN_PATH")
+
+    if connect is None:
+        DB_HOST = os.getenv("DB_HOST")
+        DB_PORT = os.getenv("DB_PORT")
+        DB_USER = os.getenv("DB_USER")
+        DB_PASS = os.getenv("DB_PASS")
+
+        def connect(dbname):
+            return psycopg2.connect(
+                dbname=dbname, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
+            )
 
     if not os.path.exists(LOCAL_CLEAN_PATH):
         raise FileNotFoundError(
@@ -43,13 +57,7 @@ def load_to_database() -> None:
         return
 
     # --- Step 1: Connect to default DB to create the database if needed ---
-    conn = psycopg2.connect(
-        dbname=DEFAULT_DB,
-        user=DB_USER,
-        password=DB_PASS,
-        host=DB_HOST,
-        port=DB_PORT
-    )
+    conn = connect(DEFAULT_DB)
     try:
         conn.autocommit = True
         cur = conn.cursor()
@@ -68,13 +76,7 @@ def load_to_database() -> None:
         conn.close()
 
     # --- Step 3: Connect to the target database and insert data ---
-    conn = psycopg2.connect(
-        dbname=TARGET_DB,
-        user=DB_USER,
-        password=DB_PASS,
-        host=DB_HOST,
-        port=DB_PORT
-    )
+    conn = connect(TARGET_DB)
     try:
         cur = conn.cursor()
 

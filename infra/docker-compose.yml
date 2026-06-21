@@ -18,8 +18,12 @@ x-airflow-common: # Define common configuration for Airflow services to avoid re
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'True'  # Enable webserver config view
     AIRFLOW__METRICS__STATSD_ON: 'True'  # Enable StatsD metrics collection
     AIRFLOW__METRICS__STATSD_HOST: statsd-exporter
-    AIRFLOW__METRICS__STATSD_PORT: 8125
+    AIRFLOW__METRICS__STATSD_PORT: 9125  # matches the statsd-exporter UDP listener below
     AIRFLOW__METRICS__STATSD_PREFIX: airflow
+
+    # Transform stage submits to the standalone Spark cluster by default. Blank this
+    # out (or set to local[*]) to run Spark in-process inside airflow-worker instead.
+    SPARK_MASTER: spark://spark-master:7077
 
     # --- Airflow connections as code (declare-only, no manual UI steps) ---
     # Defined via the AIRFLOW_CONN_<CONN_ID> pattern so the stack is fully
@@ -105,7 +109,7 @@ services:
     command: webserver
     environment:
       <<: *airflow-common-env
-      AIRFLOW__WEBSERVER__BASE_URL: http://localhost:8080  # Change as needed for your deployment
+      AIRFLOW__WEBSERVER__BASE_URL: http://localhost:8088  # matches the published host port below
     ports:
       - "8088:8080"
     depends_on:
@@ -195,6 +199,21 @@ services:
     networks:
       - infra-network
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "--webui-port", "8081", "spark://spark-master:7077"]
+
+  # StatsD → Prometheus bridge. Airflow emits UDP StatsD metrics (configured
+  # above); this collects them and exposes a Prometheus scrape endpoint on
+  # :9102/metrics so the metrics no longer drop silently into the void.
+  statsd-exporter:
+    image: prom/statsd-exporter:v0.27.1
+    container_name: statsd-exporter
+    command:
+      - "--statsd.listen-udp=:9125"
+      - "--web.listen-address=:9102"
+    ports:
+      - "9102:9102"   # Prometheus metrics endpoint
+    restart: unless-stopped
+    networks:
+      - infra-network
 
 volumes:
   postgres:
