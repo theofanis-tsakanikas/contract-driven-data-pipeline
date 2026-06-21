@@ -58,9 +58,9 @@ production-minded analytics stack running entirely on a local machine via Docker
 
 The data flows through the pipeline in three main stages, all orchestrated by Airflow:
 
-1. **Ingestion (Python & Boto3):** Generates 100 rows of synthetic dirty data using Faker and uploads the raw CSV to AWS S3. The S3 bucket is created if it doesn't exist. 
-2. **Transformation (PySpark & SparkSubmitOperator):** Spark pulls the raw CSV from S3, applies schema validation, cleans the data, performs Feature Engineering (MD5 Hashing), and saves it locally. Once done, it cleans up and deletes the S3 bucket.
-3. **Loading (Python & Psycopg2):** Performs an efficient bulk insert using execute_values into PostgreSQL with an Upsert logic (ON CONFLICT DO NOTHING).
+1. **Ingestion (Python & Boto3):** Generates 100 rows of synthetic dirty data using Faker and uploads the raw CSV to AWS S3 under a date-partitioned key (`raw/dt=<ds>/dirty-data.csv`). The S3 bucket is created if it doesn't exist; the raw object is **retained** for an auditable raw-zone history.
+2. **Transformation (PySpark & SparkSubmitOperator):** Spark pulls the raw CSV from S3 and enforces the declared [data contract](docs/governance/DATA_DICTIONARY.md). Valid rows are cleaned (MD5 pseudonymised `user_id`) and saved locally; **rejected rows are quarantined with their `rejection_reason`** (lineage) and a per-run **data-quality report** (`dq_report.json`) is written and logged.
+3. **Loading (Python & Psycopg2):** Performs an efficient bulk insert using execute_values into PostgreSQL with an Upsert logic (ON CONFLICT DO NOTHING), followed by dbt `run` + `test`.
 
 > **Note on Production vs Local Testing:** In a standard Cloud Production environment, Spark would read directly from S3 using s3a/s3n protocols and write directly to the database via a JDBC connector. For local testing, isolation, and cost-efficiency purposes, this pipeline downloads the data locally to clearly separate and monitor the three distinct ETL stages.
 
@@ -73,13 +73,14 @@ Airflow task to the stage it drives.
 flowchart TD
     subgraph AF["Apache Airflow DAG: s3-to-postgres-etl"]
         direction LR
-        T1["run_ingestion"] --> T2["spark-clean-task"] --> T3["run_loading"] --> T4["run_dbt"]
+        T1["run_ingestion"] --> T2["spark-clean-task"] --> T3["run_loading"] --> T4["run_dbt"] --> T5["run_dbt_test"]
     end
 
     GEN["generate_dirty_data_S3.py<br/>Faker · 100 dirty rows"]
-    S3["AWS S3<br/>s3://&lt;S3_BUCKET_NAME&gt;/raw/dirty-data.csv"]
-    SPARK["clean_dirty_data_S3.py<br/>PySpark local[*] · schema + regex validation · md5 user_id"]
+    S3["AWS S3 (retained)<br/>s3://&lt;S3_BUCKET_NAME&gt;/raw/dt=&lt;ds&gt;/dirty-data.csv"]
+    SPARK["clean_dirty_data_S3.py<br/>PySpark local[*] · data_contract.py · md5 user_id"]
     CSV["Local staging<br/>/opt/airflow/data/clean_data.csv"]
+    REJ["Quarantine + DQ report<br/>rejected_data.csv · dq_report.json"]
     PG[("PostgreSQL<br/>user_data.users")]
     STG["dbt: stg_users<br/>silver · email_domain, age_band"]
     M1["dbt: users_by_city"]
@@ -87,8 +88,8 @@ flowchart TD
 
     GEN -->|upload| S3
     S3 -->|download| SPARK
-    SPARK --> CSV
-    SPARK -.->|delete bucket| S3
+    SPARK -->|accepted| CSV
+    SPARK -->|rejected + reason| REJ
     CSV -->|execute_values upsert| PG
     PG --> STG
     STG --> M1
@@ -98,6 +99,7 @@ flowchart TD
     T2 -.-> SPARK
     T3 -.-> CSV
     T4 -.-> STG
+    T5 -.-> STG
 ```
 
 ---
@@ -201,12 +203,16 @@ AWS_ACCESS_KEY_ID=YOUR_AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY=YOUR_AWS_SECRET_ACCESS_KEY
 AWS_DEFAULT_REGION=eu-central-1
 S3_BUCKET_NAME=your-s3-bucket-name
+# Fallback key — the DAG overrides this per run with raw/dt=<ds>/dirty-data.csv
 S3_FILE_KEY=raw/dirty-data.csv
 
 # === 📂 Local Staging Paths ===
 LOCAL_DIRTY_PATH=/opt/airflow/data/dirty_data.csv
 LOCAL_CLEAN_FOLDER=/opt/airflow/data/clean_data
 LOCAL_CLEAN_PATH=/opt/airflow/data/clean_data.csv
+# Rejected rows (with rejection_reason) + the per-run data-quality summary
+LOCAL_REJECTS_PATH=/opt/airflow/data/rejected_data.csv
+DQ_REPORT_PATH=/opt/airflow/data/dq_report.json
 
 # === 🐳 Docker Container Permissions ===
 AIRFLOW_UID=1000
@@ -265,7 +271,7 @@ This screenshot from the Apache Airflow Graph View shows the successful completi
 
 ### Data Validation: Raw S3 (Athena) vs Cleaned DB (pgAdmin)
 
-To prove the pipeline’s cleaning capabilities, we compare the raw data in S3 with the final structured data loaded into PostgreSQL. Out of the 100 raw generated rows, the PySpark engine filtered out the noise and kept only the 14 valid records!
+To prove the pipeline’s cleaning capabilities, we compare the raw data in S3 with the final structured data loaded into PostgreSQL. Out of the 100 raw generated rows, the PySpark engine kept only the valid records (≈14) — and the rest are **not lost**: each rejected row is quarantined to `rejected_data.csv` with the contract rule it violated, and the run’s `dq_report.json` records the accept rate and the rejection breakdown by reason.
 
 In the screenshots below, we can trace common valid rows (such as `Wendy Christian`, `Caroline Nelson`, and `Mark Anthony`) that successfully passed all of Spark's validation rules.
 

@@ -116,8 +116,9 @@ loaded by compose via `--env-file` and `env_file`. Source of each:
 | `PGADMIN_MAIL`, `PGADMIN_PASS` | pgAdmin login |
 | `AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY` | dedicated IAM user with S3 access |
 | `AWS_DEFAULT_REGION` | bucket region (e.g. `eu-central-1`) |
-| `S3_BUCKET_NAME` | globally-unique bucket name (created + later deleted by the pipeline) |
-| `S3_FILE_KEY` | object key (`raw/dirty-data.csv`) |
+| `S3_BUCKET_NAME` | globally-unique bucket name (created once; raw objects are retained per run, never deleted) |
+| `S3_FILE_KEY` | fallback object key; the DAG overrides it per run with `raw/dt=<ds>/dirty-data.csv` |
+| `LOCAL_REJECTS_PATH`, `DQ_REPORT_PATH` | quarantined rejects (with `rejection_reason`) + the per-run data-quality summary, under `/opt/airflow/data` |
 | `LOCAL_DIRTY_PATH`, `LOCAL_CLEAN_FOLDER`, `LOCAL_CLEAN_PATH` | container staging paths under `/opt/airflow/data` |
 | `AIRFLOW_UID`, `AIRFLOW_GID` | file ownership for mounts (`1000:0`) |
 
@@ -149,13 +150,18 @@ Models (silver/analytics on `public.users` in `user_data`):
 
 ## Tests, lint, CI
 
-- **Unit tests:** `pytest tests/` — exercise `clean_dataframe()` (the pure transform
-  extracted from `clean_dirty_data_S3.py`) in a local SparkSession. Needs Java 17+.
+- **Unit tests:** `pytest tests/` — exercise `clean_dataframe()` (accepts), `rejected_dataframe()`
+  (provenance: every row carries the first contract rule it violated), `data_quality_report()`,
+  the loader edge cases, and the pure `data_contract.py` (rules + PII classification) in a local
+  SparkSession. Needs Java 17+.
 - **Lint:** `ruff check .` — conservative ruleset (`E4/E7/E9` + `F`) in `pyproject.toml`;
   stylistic findings are suppressed inline with `# noqa` rather than rewritten.
+- **Data dictionary in sync:** the CI `lint` job runs `python scripts/data_contract.py --check`
+  (pure stdlib, no Spark) — it fails if `docs/governance/DATA_DICTIONARY.md` drifts from the
+  declared contract. Regenerate with `python scripts/data_contract.py`.
 - **CI** (`.github/workflows/ci.yml`, on push + PR): `lint`, `test` (PySpark, Java 17,
-  `local[1]`), and a `smoke` job that loads a CSV fixture into a `postgres:16` service
-  container and asserts the row count.
+  `local[1]`), `dag-validate` (DagBag integrity), and a `smoke` job that loads a CSV fixture
+  into a `postgres:16` service container and asserts the row count.
 
 ## Known failure modes & gotchas
 
