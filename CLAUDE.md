@@ -29,8 +29,10 @@ s3-spark-pg-etl/
 │   ├── requirements-airflow.txt
 │   ├── requirements-spark.txt
 │   ├── spark-defaults.conf
+│   ├── observability/          # Prometheus + Grafana (provisioned dashboard) + statsd mapping
 │   └── terraform/              # IaC: data-lake bucket + lifecycle, least-priv IAM, Glue crawler + Athena
 │       └── bootstrap/          # one-time: remote-state bucket + lock table + GitHub OIDC deployer role
+├── app/                        # Streamlit marts BI dashboard (live Postgres or demo)
 ├── tests/                      # pytest unit tests for the PySpark transform
 ├── Makefile                    # dev ergonomics: make up / run / tf-apply / crawler ... (make = help)
 ├── .github/workflows/ci.yml    # lint + test + smoke + dag-validate CI (the data/code plane)
@@ -132,6 +134,8 @@ loaded by compose via `--env-file` and `env_file`. Source of each:
 | `S3_FILE_KEY` | fallback object key; the DAG overrides it per run with `raw/dt=<ds>/dirty-data.csv` |
 | `LOCAL_REJECTS_PATH`, `DQ_REPORT_PATH` | quarantined rejects (with `rejection_reason`) + the per-run data-quality summary, under `/opt/airflow/data` |
 | `LOCAL_DIRTY_PATH`, `LOCAL_CLEAN_FOLDER`, `LOCAL_CLEAN_PATH` | container staging paths under `/opt/airflow/data` |
+| `N_DIRTY_RECORDS` | how many synthetic rows ingestion generates (default 100; bump for a fuller demo) |
+| `GRAFANA_USER`, `GRAFANA_PASS` | Grafana UI login (default `admin`/`admin`) |
 | `AIRFLOW_UID`, `AIRFLOW_GID` | file ownership for mounts (`1000:0`) |
 
 ### Connections as code
@@ -211,9 +215,11 @@ have different lifecycles and are driven by different tools.
   `statsd-exporter` (`:9125` in, `:9102/metrics` out, cleaned up by
   `infra/observability/statsd_mapping.yml`) → `prometheus` (`:9090`) scrapes them →
   `grafana` (`:3000`, admin/admin) renders the provisioned **Airflow — Pipeline
-  Observability** dashboard (`infra/observability/grafana/dashboards/`). This monitors the
-  *pipeline* (run durations, task finishes by state, heartbeat); the *data* is visualised
-  by the Streamlit app and the Athena saved queries instead.
+  Observability** dashboard (`infra/observability/grafana/dashboards/`). It shows ops metrics
+  (per-task & DAG-run durations, task finishes by state, heartbeat) **and data quality** — the
+  Spark clean task emits `airflow.dq.*` gauges (accept-rate, accepted/rejected,
+  rejections-by-reason) via `_emit_dq_metrics`. The marts themselves are visualised by the
+  Streamlit app / Athena instead.
 - **Empty result set.** If PySpark filters out every row, `clean_data.csv` is empty and
   `load_to_db_final.py` short-circuits with a warning (no rows inserted).
 - **Rejects + DQ report are run artifacts.** The clean task also writes

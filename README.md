@@ -4,15 +4,17 @@
 
 ![Project Architecture Banner](images/s3-spark-pg-etl.png)
 
-An automated, containerized ETL (Extract, Transform, Load) pipeline orchestrated by `Apache Airflow`. The project generates mock "dirty" data, uploads them to `AWS S3,` processes and cleans them using `PySpark`, and performs a high-performance bulk load into `PostgreSQL`.
+An automated, containerized ETL (Extract, Transform, Load) pipeline orchestrated by `Apache Airflow`. The project generates mock "dirty" data, uploads it to `AWS S3`, cleans it with `PySpark` against a declarative data contract, bulk-loads it into `PostgreSQL`, and builds analytics marts with `dbt`. The AWS side is provisioned with `Terraform` (least-privilege IAM, Glue + Athena), and the pipeline is monitored in `Grafana`.
 
 [![CI](https://github.com/theofanis-tsakanikas/s3-spark-pg-etl/actions/workflows/ci.yml/badge.svg)](https://github.com/theofanis-tsakanikas/s3-spark-pg-etl/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-2.11-017CEE?logo=apacheairflow&logoColor=white)
 ![Apache Spark](https://img.shields.io/badge/Apache%20Spark-3.5.2-E25A1C?logo=apachespark&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-13-4169E1?logo=postgresql&logoColor=white)
-![dbt](https://img.shields.io/badge/dbt-1.8.2-FF694B?logo=dbt&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![dbt](https://img.shields.io/badge/dbt-1.8-FF694B?logo=dbt&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-IaC-7B42BC?logo=terraform&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-Observability-F46800?logo=grafana&logoColor=white)
 
 ---
 
@@ -30,9 +32,19 @@ production-minded analytics stack running entirely on a local machine via Docker
   idempotent `ON CONFLICT` semantics.
 - **Analytics engineering** — a dbt silver/marts layer (staging view + aggregate marts)
   with tests, isolated from Airflow's dependencies.
-- **Reproducibility & quality** — connections-as-code, a containerised stack, unit tests
-  for the transform, ruff linting, and a CI pipeline (lint + PySpark tests + a Postgres
-  smoke test).
+- **Infrastructure as Code** — Terraform provisions the AWS side (data-lake bucket +
+  lifecycle, least-privilege pipeline IAM user, Glue crawler + Athena), with a one-time
+  bootstrap for remote state and a GitHub Actions **apply button** authenticated via OIDC
+  (no stored AWS keys).
+- **Query the lake** — Glue catalogs the S3 zones (`raw`/`rejects`/`quality`) so you can
+  run **Athena** SQL straight over the lake, including a data-quality history.
+- **Observability** — Airflow StatsD metrics flow to Prometheus and a provisioned
+  **Grafana** dashboard (run durations, task outcomes, and **data-quality** trends such
+  as accept-rate and rejections-by-reason).
+- **BI** — a **Streamlit** dashboard over the marts (live Postgres or a self-contained demo).
+- **Reproducibility & quality** — connections-as-code, a containerised stack, a `Makefile`
+  front door, unit tests for the transform, ruff linting, and a CI pipeline (lint + PySpark
+  tests + a Postgres smoke test + DAG-validate).
 
 > New here? Start with the [Data Lineage](#-data-lineage) diagram, then the
 > [Installation & Setup](#-installation--setup). For an engineering deep-dive, see
@@ -56,11 +68,12 @@ production-minded analytics stack running entirely on a local machine via Docker
 
 ## 🏗️ Architecture Overview
 
-The data flows through the pipeline in three main stages, all orchestrated by Airflow:
+The Airflow DAG runs five tasks in order — `run_ingestion → spark-clean-task → run_loading → run_dbt → run_dbt_test`:
 
-1. **Ingestion (Python & Boto3):** Generates 100 rows of synthetic dirty data using Faker and uploads the raw CSV to AWS S3 under a date-partitioned key (`raw/dt=<ds>/dirty-data.csv`). The S3 bucket is created if it doesn't exist; the raw object is **retained** for an auditable raw-zone history.
-2. **Transformation (PySpark & SparkSubmitOperator):** Spark pulls the raw CSV from S3 and enforces the declared [data contract](docs/governance/DATA_DICTIONARY.md). Valid rows are cleaned (MD5 pseudonymised `user_id`) and saved locally; **rejected rows are quarantined with their `rejection_reason`** (lineage) and a per-run **data-quality report** (`dq_report.json`) is written and logged.
-3. **Loading (Python & Psycopg2):** Performs an efficient bulk insert using execute_values into PostgreSQL with an Upsert logic (ON CONFLICT DO NOTHING), followed by dbt `run` + `test`.
+1. **Ingestion (Python & Boto3):** Generates synthetic dirty data with Faker (default 100 rows, configurable via `N_DIRTY_RECORDS`) and uploads the raw CSV to AWS S3 under a date-partitioned key (`raw/dt=<ds>/dirty-data.csv`). The bucket is **provisioned by Terraform** (the pipeline only writes objects — no `s3:CreateBucket`), and the raw zone is **retained** under a lifecycle rule for an auditable history. Credentials come from the `aws_default` Airflow connection (`S3Hook`).
+2. **Transformation (PySpark & SparkSubmitOperator):** Spark pulls the raw CSV from S3 and enforces the declared [data contract](docs/governance/DATA_DICTIONARY.md). Valid rows are cleaned (MD5 pseudonymised `user_id`) and loaded; **rejected rows are quarantined with their `rejection_reason`** (lineage) and a per-run **data-quality report** (`dq_report.json`) is written, logged, **emitted to Grafana** as metrics, and uploaded back to S3 (`rejects/` + `quality/` zones).
+3. **Loading (Python & Psycopg2):** Performs an efficient bulk insert using `execute_values` into PostgreSQL with upsert logic (`ON CONFLICT DO NOTHING`), using the `postgres_default` Airflow connection.
+4. **Analytics (dbt):** `run_dbt` builds the silver/marts layer (`stg_users` → `users_by_city`, `users_by_age_band`); `run_dbt_test` runs the schema tests, so a bad load fails the DAG instead of publishing broken marts.
 
 > **Note on Production vs Local Testing:** In a standard Cloud Production environment, Spark would read directly from S3 using s3a/s3n protocols and write directly to the database via a JDBC connector. For local testing, isolation, and cost-efficiency purposes, this pipeline downloads the data locally to clearly separate and monitor the three distinct ETL stages.
 
@@ -76,7 +89,7 @@ flowchart TD
         T1["run_ingestion"] --> T2["spark-clean-task"] --> T3["run_loading"] --> T4["run_dbt"] --> T5["run_dbt_test"]
     end
 
-    GEN["generate_dirty_data_S3.py<br/>Faker · 100 dirty rows"]
+    GEN["generate_dirty_data_S3.py<br/>Faker · N dirty rows (N_DIRTY_RECORDS, default 100)"]
     S3["AWS S3 (retained)<br/>s3://&lt;S3_BUCKET_NAME&gt;/raw/dt=&lt;ds&gt;/dirty-data.csv"]
     SPARK["clean_dirty_data_S3.py<br/>PySpark (SPARK_MASTER: cluster or local[*]) · data_contract.py · md5 user_id"]
     CSV["Local staging<br/>/opt/airflow/data/clean_data.csv"]
@@ -119,12 +132,12 @@ For this project, we spin up a **single PostgreSQL container** acting as a unifi
 
 ## 🔐 Security & AWS IAM Configuration
 
-To run this pipeline, it is highly recommended to create a dedicated IAM User in AWS instead of using your Root Account.
+The pipeline's AWS identity is **managed by Terraform** (`infra/terraform/iam.tf`) — you don't create it by hand:
 
-* **Create a new IAM User:** Go to AWS IAM and create a user (e.g., s3-spark-airflow-worker).
-* **Access Keys:** Generate an Access Key ID and Secret Access Key for this user.
-* **IAM Policy:** Attach a policy granting programmatic access ONLY to S3 (AmazonS3FullAccess) to ensure the Principle of Least Privilege.
-* **Environment:** Place these keys safely in your .env file (Gitignored).
+* **Dedicated least-privilege IAM user:** Terraform creates a user whose policy allows *only* `s3:ListBucket` on the data-lake bucket and `s3:GetObject`/`s3:PutObject` on its objects — no `CreateBucket`, no `DeleteObject`, no access to anything else.
+* **Access keys as outputs:** `terraform output pipeline_access_key_id` / `pipeline_secret_access_key` — drop them into your `.env` (gitignored).
+* **No stored keys in CI:** the Terraform GitHub Actions workflow authenticates to AWS via **OIDC** (a deployer role created by the one-time bootstrap), so there are no long-lived AWS keys in GitHub.
+* **Two distinct identities:** the *pipeline* user (read/write objects) is separate from the *deployer* role (provisions infra) — never reuse one for the other.
 
 ---
 
@@ -133,17 +146,24 @@ To run this pipeline, it is highly recommended to create a dedicated IAM User in
 The repository is organized following standard Data Engineering folder conventions:
 ```text
 s3-spark-pg-etl/
-├── dags/             # Airflow DAG definition (TaskFlow API)
-├── data/             # Local staging area for CSV files (Gitignored)
-├── images/           # Banners and architecture diagrams
-├── infra/            # Docker Compose & Custom Dockerfiles
-│   └── docker-compose.yml
-├── logs/             # Airflow logs
-├── scripts/          # Python & PySpark ETL scripts
-├── .env              # Environment variables and credentials
-├── .gitignore        # Standard python & environment gitignore
-├── LICENSE           # Project license
-└── README.md         # Documentation
+├── dags/             # Airflow DAG (TaskFlow API) — dag_id: s3-to-postgres-etl
+├── scripts/          # ETL stages: generator, data_contract, PySpark clean, loader
+├── dbt/              # dbt silver/marts layer (stg_users → users_by_city / _age_band)
+├── docs/governance/  # Generated DATA_DICTIONARY.md (contract + PII classification)
+├── infra/
+│   ├── docker-compose.yml         # the full local stack
+│   ├── Dockerfile.airflow/.spark  # arch-aware (amd64 + arm64) images
+│   ├── observability/             # Prometheus + Grafana (provisioned dashboard) + statsd mapping
+│   └── terraform/                 # IaC: bucket + lifecycle, least-priv IAM, Glue, Athena
+│       └── bootstrap/             # one-time: remote state + lock + GitHub OIDC role
+├── app/              # Streamlit marts BI dashboard (live Postgres or demo)
+├── tests/            # pytest unit tests (transform, contract, loader, DAG integrity)
+├── Makefile          # dev front door: make up / run / tf-apply / crawler / app ...
+├── .github/workflows/ ci.yml (lint+test+smoke+dag-validate) · terraform.yml (plan/apply, OIDC)
+├── data/  logs/      # runtime mounts (gitignored)
+├── .env / .env.example
+├── LICENSE
+└── README.md
 ```
 ---
 
@@ -151,16 +171,21 @@ s3-spark-pg-etl/
 
 | Technology | Purpose | Key Libraries Used |
 | :--- | :--- | :--- |
-| Apache Airflow 2.11 | Pipeline Orchestration | TaskFlow API, SparkSubmitOperator |
+| Apache Airflow 2.11 | Pipeline Orchestration | TaskFlow API, SparkSubmitOperator, S3Hook |
 | Apache Spark 3.5.2 | Distributed Processing & Cleaning | pyspark, pyarrow |
-| AWS S3 / Boto3 | Cloud Object Storage | boto3, botocore |
-| PostgreSQL 13 | Target Relational Database | psycopg2-binary, execute_values |
+| AWS S3 / Boto3 | Cloud Object Storage (data lake) | boto3, botocore |
+| PostgreSQL 16 | Target Relational Database | psycopg2-binary, execute_values |
+| dbt 1.8 (postgres) | Analytics / marts (silver-gold) | dbt-core, dbt-postgres |
+| Terraform | IaC: bucket, IAM, Glue, Athena (+ OIDC) | hashicorp/aws ~> 5 |
+| Glue + Athena | Catalog + SQL over the S3 lake | Glue crawler, Athena workgroup |
+| Prometheus + Grafana | Pipeline & data-quality observability | statsd-exporter, provisioned dashboards |
+| Streamlit | Marts BI dashboard | streamlit, plotly |
 | Docker & Compose | Multi-container Infrastructure | CeleryExecutor, Redis Broker |
 
 **Prerequisites:**
 * Docker and Docker Compose installed.
 * Python 3.12+ (for local development).
-* AWS S3 bucket access credentials.
+* An AWS account + Terraform and AWS CLI (to provision the bucket/IAM/Glue/Athena).
 
 ---
 
@@ -174,8 +199,17 @@ git clone https://github.com/your-username/s3-spark-pg-etl.git
 cd s3-spark-pg-etl
 ```
 
-**2. Configure Environment Variables**
-Navigate to the root directory and create a .env file based on your credentials:
+**2. Provision the AWS side with Terraform**
+One-time bootstrap (remote state + lock + GitHub OIDC role), then the main infra (bucket + IAM + Glue + Athena). See [infra/terraform/README.md](infra/terraform/README.md).
+```bash
+make bootstrap-apply          # once, with admin creds
+make tf-apply                 # creates bucket, least-priv IAM user, Glue, Athena
+make tf-output                # → S3_BUCKET_NAME + pipeline AWS keys for .env
+```
+> Prefer a button? Open a PR for `terraform plan`, then run the **Terraform** GitHub Action (`apply`, OIDC). The pipeline itself runs in Airflow, never from CI.
+
+**3. Configure Environment Variables**
+Create a `.env` at the repo root (copy from `.env.example`); fill the AWS values from `make tf-output`:
 
 ```bash
 # === 🗄️ PostgreSQL Instance Settings (Database) ===
@@ -198,6 +232,10 @@ AIRFLOW_ADMIN_EMAIL=admin@example.com
 PGADMIN_MAIL=admin@example.com
 PGADMIN_PASS=your_pgadmin_password
 
+# === 📈 Grafana UI (optional; defaults admin/admin) ===
+GRAFANA_USER=admin
+GRAFANA_PASS=your_grafana_password
+
 # === ☁️ AWS S3 Configuration ===
 AWS_ACCESS_KEY_ID=YOUR_AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY=YOUR_AWS_SECRET_ACCESS_KEY
@@ -207,6 +245,8 @@ S3_BUCKET_NAME=your-s3-bucket-name
 S3_FILE_KEY=raw/dirty-data.csv
 
 # === 📂 Local Staging Paths ===
+# N_DIRTY_RECORDS = how many rows ingestion generates (default 100; bump for a fuller demo)
+N_DIRTY_RECORDS=100
 LOCAL_DIRTY_PATH=/opt/airflow/data/dirty_data.csv
 LOCAL_CLEAN_FOLDER=/opt/airflow/data/clean_data
 LOCAL_CLEAN_PATH=/opt/airflow/data/clean_data.csv
@@ -219,13 +259,20 @@ AIRFLOW_UID=1000
 AIRFLOW_GID=0
 ```
 
-**3. Build and Spin Up Docker Containers**  
-Run the Docker Compose setup from the root of the project by explicitly defining the path to both the `.env` file and the compose file:
+**4. Build and Spin Up the Stack**
 ```bash
-docker compose --env-file .env -f infra/docker-compose.yml up --build -d
+make up          # = docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 ```
 
-*Note: The init.sh entrypoint script will automatically run airflow db init, create the Airflow admin user using the credentials defined in your .env file, and set up the healthchecks!*
+*Note: The init.sh entrypoint automatically runs `airflow db init`, creates the Airflow admin user from your `.env`, and sets up healthchecks.*
+
+**5. Run the pipeline**
+In the Airflow UI (http://localhost:8088) enable the DAG `s3-to-postgres-etl` and click ▶ — or `make run`. Then explore the results:
+```bash
+make crawler     # catalog the S3 lake so Athena can query it
+make app         # launch the Streamlit marts dashboard (http://localhost:8501)
+```
+> Run `make` with no target to see every shortcut.
 
 ---
 
@@ -254,15 +301,20 @@ Once docker-compose is up, you can monitor the setup using the following ports:
 | Service | URL | Credentials |
 | :--- | :--- | :--- |
 | **Airflow Webserver** | http://localhost:8088 | Defined in `.env` (Default: airflow / airflow) |
-| **Spark Master WebUI** | http://localhost:8080 | No Authentication (Local Testing) |
+| **Grafana** (pipeline + data-quality) | http://localhost:3000 | `GRAFANA_USER` / `GRAFANA_PASS` (Default: admin / admin) |
+| **Streamlit** (marts BI) | http://localhost:8501 | `make app` — no auth |
 | **pgAdmin** | http://localhost:5050 | Defined in `.env` (`PGADMIN_MAIL` / `PGADMIN_PASS`) |
+| **Prometheus** | http://localhost:9090 | No Authentication |
+| **Spark Master WebUI** | http://localhost:8080 | No Authentication (Local Testing) |
+
+> Athena lives in the AWS Console (workgroup `s3-spark-pg-etl-wg`, database `s3_spark_pg_etl_lake`) — run `make crawler` first.
 
 *Tip: Always use your `.env` file to change default passwords before deploying to any shared environment!*
 
 ## 📊 Pipeline Execution & Monitoring
 
 ### Successful Airflow DAG Run
-This screenshot from the Apache Airflow Graph View shows the successful completion of the entire ETL pipeline. All three tasks (`run_ingestion`, `spark-clean-task`, `run_loading`) are marked with the `success` state.
+This screenshot from the Apache Airflow Graph View shows the successful completion of the entire ETL pipeline. All five tasks (`run_ingestion → spark-clean-task → run_loading → run_dbt → run_dbt_test`) are marked with the `success` state.
 
 ![Apache Airflow DAG Graph View](images/airflow-dag-run.png)
 
@@ -271,7 +323,7 @@ This screenshot from the Apache Airflow Graph View shows the successful completi
 
 ### Data Validation: Raw S3 (Athena) vs Cleaned DB (pgAdmin)
 
-To prove the pipeline’s cleaning capabilities, we compare the raw data in S3 with the final structured data loaded into PostgreSQL. Out of the 100 raw generated rows, the PySpark engine kept only the valid records (≈14) — and the rest are **not lost**: each rejected row is quarantined to `rejected_data.csv` with the contract rule it violated, and the run’s `dq_report.json` records the accept rate and the rejection breakdown by reason.
+To prove the pipeline’s cleaning capabilities, we compare the raw data in S3 with the final structured data loaded into PostgreSQL. Out of the raw generated rows (100 by default, configurable via `N_DIRTY_RECORDS`), the PySpark engine keeps only the valid records (typically ~16–19% pass the contract) — and the rest are **not lost**: each rejected row is quarantined to `rejected_data.csv` with the contract rule it violated, and the run’s `dq_report.json` records the accept rate and the rejection breakdown by reason (also visible in Grafana and queryable in Athena).
 
 In the screenshots below, we can trace common valid rows (such as `Wendy Christian`, `Caroline Nelson`, and `Mark Anthony`) that successfully passed all of Spark's validation rules.
 
