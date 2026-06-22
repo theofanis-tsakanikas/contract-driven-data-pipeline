@@ -65,7 +65,7 @@ production-minded analytics stack running entirely on a local machine via Docker
 - [Installation & Setup](#-installation--setup)
 - [ETL Pipeline Breakdown](#-etl-pipeline-breakdown)
 - [Monitoring UIs](#-monitoring-uis)
-- [Pipeline Execution & Monitoring](#-pipeline-execution--monitoring)
+- [Pipeline Execution & Results](#-pipeline-execution--results)
 
 ---
 
@@ -360,29 +360,64 @@ Once docker-compose is up, you can monitor the setup using the following ports:
 
 *Tip: Always use your `.env` file to change default passwords before deploying to any shared environment!*
 
-## 📊 Pipeline Execution & Monitoring
+## 📊 Pipeline Execution & Results
 
-### Successful Airflow DAG Run
-This screenshot from the Apache Airflow Graph View shows the successful completion of the entire ETL pipeline. All five tasks (`run_ingestion → spark-clean-task → run_loading → run_dbt → run_dbt_test`) are marked with the `success` state.
+A walkthrough of one real run, following the data from orchestration → cleaning →
+quality → analytics → observability.
 
-![Apache Airflow DAG Graph View](images/airflow-dag-run.png)
+### 1 · Orchestration — the Airflow DAG
 
-*(Timestamped: 2026-03-23, 06:05:39 UTC)*
+All five tasks (`run_ingestion → spark-clean-task → run_loading → run_dbt → run_dbt_test`)
+complete with the `success` state — one click in the UI runs the whole platform.
 
+![Airflow Graph view — all 5 ETL tasks green/success](images/airflow-dag.png)
 
-### Data Validation: Raw S3 (Athena) vs Cleaned DB (pgAdmin)
+### 2 · The contract at work — dirty → clean
 
-To prove the pipeline’s cleaning capabilities, we compare the raw data in S3 with the final structured data loaded into PostgreSQL. Out of the raw generated rows (100 by default, configurable via `N_DIRTY_RECORDS`), the PySpark engine keeps only the valid records (typically ~16–19% pass the contract) — and the rest are **not lost**: each rejected row is quarantined to `rejected_data.csv` with the contract rule it violated, and the run’s `dq_report.json` records the accept rate and the rejection breakdown by reason (also visible in Grafana and queryable in Athena).
+The headline of the project: a declarative **data contract** validates every row.
+Out of the generated rows (default 100, configurable via `N_DIRTY_RECORDS`), only the
+valid ones pass (~16–19%); the rest are **not lost** — each is quarantined with the rule
+it violated.
 
-In the screenshots below, we can trace common valid rows (such as `Wendy Christian`, `Caroline Nelson`, and `Mark Anthony`) that successfully passed all of Spark's validation rules.
+**Before — raw, dirty data (Amazon Athena over S3):** whitespace, negative ages, invalid
+emails, empty fields.
 
-**☁️ 1. Raw Data State in AWS S3 (via Amazon Athena)**
-Using Amazon Athena, we run SQL queries directly on top of the S3 CSV files. As seen in the screenshot, the raw dataset contains "noise" such as whitespaces, negative ages, invalid emails, and empty fields:
+![Amazon Athena querying the raw S3 zone — dirty rows (bad emails, ages like -5/150, blanks)](images/athena-raw-dirty.png)
 
-![AWS Athena Querying S3 Dirty Data](images/aws-athena-query.png)
+**After — clean, structured data (PostgreSQL via pgAdmin):** valid rows only, cast types,
+and a deterministic `user_id` MD5 pseudonym.
 
-**🐘 2. Cleaned & Structured Data State (via pgAdmin)**
-After PySpark processes the data, it is loaded into PostgreSQL. Running the same query in pgAdmin proves that the anomalies were dropped! Spark cast data types correctly, kept valid emails/ages, and generated deterministic `user_id` hashes:
+![pgAdmin showing the cleaned PostgreSQL users table — valid rows with md5 user_id](images/postgres-clean.png)
 
-![pgAdmin Clean Data View](images/postgres-output.png)
+### 3 · Data quality & observability
+
+Not just *whether* the pipeline ran, but *how good the data was* — surfaced in Grafana
+(ops **and** data quality) and queryable in Athena over the lake.
+
+![Grafana "Pipeline Observability" dashboard — accept-rate gauge, rejections by reason, per-task durations](images/grafana-dashboard.png)
+
+*Grafana — pipeline durations, task outcomes, and live data-quality metrics (accept rate, rejections by reason).*
+
+![Amazon Athena — rejections_by_reason query over the quality/rejects zones](images/athena-rejections.png)
+
+*Athena `rejections_by_reason` — SQL straight over the S3 data-quality zone (cataloged by Glue).*
+
+### 4 · Analytics & BI
+
+The dbt silver/gold marts, and a Streamlit dashboard over them.
+
+![PostgreSQL dbt mart (users_by_age_band / users_by_city) in pgAdmin](images/postgres-marts.png)
+
+*dbt marts in PostgreSQL — `users_by_age_band` and `users_by_city`, built and tested by dbt.*
+
+![Streamlit Marts BI dashboard — age bands, email domains, top cities](images/streamlit-bi.png)
+
+*Streamlit — business-ready marts (age bands, email domains, top cities) over the warehouse.*
+
+### 5 · The data lake (S3 zones)
+
+Date-partitioned `raw/`, `rejects/`, and `quality/` zones — auditable history, governed by
+a lifecycle rule.
+
+![AWS S3 console — raw/ rejects/ quality/ zones with dt=<date> partitions](images/s3-zones.png)
 
