@@ -21,15 +21,20 @@ x-airflow-common: # Define common configuration for Airflow services to avoid re
     AIRFLOW__METRICS__STATSD_PORT: 9125  # matches the statsd-exporter UDP listener below
     AIRFLOW__METRICS__STATSD_PREFIX: airflow
 
-    # Transform stage submits to the standalone Spark cluster by default. Blank this
-    # out (or set to local[*]) to run Spark in-process inside airflow-worker instead.
-    SPARK_MASTER: spark://spark-master:7077
+    # Transform-stage Spark master. Defaults to in-process local[*], which works on
+    # every architecture (incl. Apple Silicon / arm64). To use the standalone
+    # spark-master/spark-worker cluster, set SPARK_MASTER=spark://spark-master:7077
+    # in .env — that requires an amd64 host (the Spark image ships an x86_64 JDK).
+    SPARK_MASTER: ${SPARK_MASTER:-local[*]}
 
     # --- Airflow connections as code (declare-only, no manual UI steps) ---
     # Defined via the AIRFLOW_CONN_<CONN_ID> pattern so the stack is fully
     # reproducible after `docker compose up`. JSON form is used to avoid
     # URL-encoding issues with special characters in the AWS secret key.
-    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type": "spark", "host": "spark://spark-master", "port": 7077}'
+    # Default: spark-submit runs in-process (local[*]) inside airflow-worker — reliable
+    # on every architecture. To use the standalone cluster instead, set the host to
+    # "spark://spark-master" with "port": 7077 (and SPARK_MASTER to match) on an amd64 host.
+    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type": "spark", "host": "local[*]"}'
     AIRFLOW_CONN_AWS_DEFAULT: '{"conn_type": "aws", "login": "${AWS_ACCESS_KEY_ID}", "password": "${AWS_SECRET_ACCESS_KEY}", "extra": {"region_name": "${AWS_DEFAULT_REGION}"}}'
     AIRFLOW_CONN_POSTGRES_DEFAULT: '{"conn_type": "postgres", "login": "${DB_USER}", "password": "${DB_PASS}", "host": "${DB_HOST}", "port": ${DB_PORT}, "schema": "${TARGET_DB}"}'
 

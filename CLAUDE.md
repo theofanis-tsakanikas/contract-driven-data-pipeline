@@ -75,14 +75,16 @@ docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 
 UIs: Airflow http://localhost:8088 · pgAdmin http://localhost:5050 · Spark master http://localhost:8080
 
-> **Note — Spark master is configurable.** The transform script uses
-> `SparkSession.builder.master(os.getenv("SPARK_MASTER", "local[*]"))`. Compose sets
-> `SPARK_MASTER=spark://spark-master:7077` in `airflow-common-env`, so DAG runs submit
-> to the standalone `spark-master`/`spark-worker` cluster (the `spark-clean-task` also
-> sets `conn_id='spark_default'`). Blank out `SPARK_MASTER` (or set it to `local[*]`)
-> to run Spark in-process inside `airflow-worker` instead — which is what standalone
-> script runs and the CI tests do, since they never set the variable. The transform
-> uses only Spark-SQL built-ins (no Python UDFs), so executors need no `--py-files`.
+> **Note — Spark runs in-process (`local[*]`) by default.** The transform script uses
+> `SparkSession.builder.master(os.getenv("SPARK_MASTER", "local[*]"))`, and compose
+> defaults both `SPARK_MASTER` and the `spark_default` connection to `local[*]`, so the
+> `spark-clean-task` runs Spark inside `airflow-worker` — reliable on every architecture,
+> **including Apple Silicon (arm64)**. The standalone `spark-master`/`spark-worker`
+> services are available but **opt-in**: to use the cluster, set `SPARK_MASTER` and the
+> `AIRFLOW_CONN_SPARK_DEFAULT` host to `spark://spark-master:7077` — which requires an
+> amd64 host (the Spark image's JDK is native per-arch, but distributed mode wasn't the
+> default for portability). The transform uses only Spark-SQL built-ins (no Python UDFs),
+> so executors need no `--py-files`.
 
 ## Triggering the DAG (`dag_id: s3-to-postgres-etl`)
 
@@ -135,7 +137,7 @@ No manual UI connection setup is required. Connections are declared in
 `infra/docker-compose.yml` via the `AIRFLOW_CONN_<ID>` env-var pattern (JSON form,
 interpolated from `.env`):
 
-- `AIRFLOW_CONN_SPARK_DEFAULT` → `spark://spark-master:7077`
+- `AIRFLOW_CONN_SPARK_DEFAULT` → `local[*]` (in-process; opt into the cluster with `spark://spark-master:7077`)
 - `AIRFLOW_CONN_AWS_DEFAULT` → IAM creds + region
 - `AIRFLOW_CONN_POSTGRES_DEFAULT` → target Postgres
 
@@ -215,8 +217,12 @@ have different lifecycles and are driven by different tools.
   zones (non-fatal if that upload fails). The validation rules live once in
   `scripts/data_contract.py`; regenerate the committed `docs/governance/DATA_DICTIONARY.md`
   with `python scripts/data_contract.py` (CI's `--check` fails if it drifts).
-- **Spark master.** Configurable via `SPARK_MASTER` (see the cluster note above); compose
-  defaults it to the standalone cluster, CI/standalone runs fall back to `local[*]`.
+- **Spark master.** Defaults to in-process `local[*]` (compose sets both `SPARK_MASTER`
+  and `spark_default` to it) for cross-arch portability; opt into the standalone cluster
+  via `SPARK_MASTER`/`AIRFLOW_CONN_SPARK_DEFAULT` on amd64. See the cluster note above.
+- **Apple Silicon / arm64.** The Dockerfiles install an **arch-aware Temurin JDK**
+  (`aarch64` on arm64, `x64` on amd64). An x64-only JDK fails on arm64 with
+  `qemu-x86_64: Could not open '/lib64/ld-linux-x86-64.so.2'` and crashes `spark-submit`.
 - **dbt dependency isolation.** dbt is intentionally in its own venv. Do **not** add
   `dbt-postgres` to `requirements-airflow.txt` — it can conflict with Airflow's pins.
 - **`docker compose` env file path.** Always pass both `--env-file .env` and
