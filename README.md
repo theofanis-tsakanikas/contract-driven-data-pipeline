@@ -1,12 +1,15 @@
 <div style="background-color:#fff8e7; color:#2b2b2b; padding:20px; border-radius:10px;">
 
-# 🚀 s3-spark-pg-etl: End-to-End Containerized Data Pipeline
+# 🚀 Contract-Driven Data Pipeline
 
-![Project Architecture Banner](images/s3-spark-pg-etl.png)
+> An end-to-end, containerized ETL platform where a declarative **data contract** is the single source of truth — driving validation, rejection lineage, and PII classification.
+> **Faker → AWS S3 → PySpark → PostgreSQL → dbt**, orchestrated by **Airflow**, provisioned with **Terraform**, observed in **Grafana**.
+
+![Contract-Driven Data Pipeline — architecture banner](images/banner.png)
 
 An automated, containerized ETL (Extract, Transform, Load) pipeline orchestrated by `Apache Airflow`. The project generates mock "dirty" data, uploads it to `AWS S3`, cleans it with `PySpark` against a declarative data contract, bulk-loads it into `PostgreSQL`, and builds analytics marts with `dbt`. The AWS side is provisioned with `Terraform` (least-privilege IAM, Glue + Athena), and the pipeline is monitored in `Grafana`.
 
-[![CI](https://github.com/theofanis-tsakanikas/s3-spark-pg-etl/actions/workflows/ci.yml/badge.svg)](https://github.com/theofanis-tsakanikas/s3-spark-pg-etl/actions/workflows/ci.yml)
+[![CI](https://github.com/theofanis-tsakanikas/contract-driven-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/theofanis-tsakanikas/contract-driven-data-pipeline/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-2.11-017CEE?logo=apacheairflow&logoColor=white)
@@ -145,7 +148,7 @@ The pipeline's AWS identity is **managed by Terraform** (`infra/terraform/iam.tf
 
 The repository is organized following standard Data Engineering folder conventions:
 ```text
-s3-spark-pg-etl/
+contract-driven-data-pipeline/
 ├── dags/             # Airflow DAG (TaskFlow API) — dag_id: s3-to-postgres-etl
 ├── scripts/          # ETL stages: generator, data_contract, PySpark clean, loader
 ├── dbt/              # dbt silver/marts layer (stg_users → users_by_city / _age_band)
@@ -195,8 +198,8 @@ Follow these steps to run the pipeline locally on your machine:
 
 **1. Clone the repository**
 ```bash
-git clone https://github.com/your-username/s3-spark-pg-etl.git
-cd s3-spark-pg-etl
+git clone https://github.com/theofanis-tsakanikas/contract-driven-data-pipeline.git
+cd contract-driven-data-pipeline
 ```
 
 **2. Provision the AWS side with Terraform**

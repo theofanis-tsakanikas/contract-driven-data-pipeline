@@ -1,14 +1,19 @@
 # CLAUDE.md — Engineering Reference
 
-Onboarding and engineering reference for **s3-spark-pg-etl**, a containerised ETL
-pipeline: Faker → AWS S3 → PySpark clean → PostgreSQL → dbt analytics, orchestrated
-by Apache Airflow. See [README.md](README.md) for the narrative overview and the
-data-lineage diagram.
+Onboarding and engineering reference for the **Contract-Driven Data Pipeline** (repo
+`contract-driven-data-pipeline`), a containerised ETL pipeline: Faker → AWS S3 → PySpark
+clean → PostgreSQL → dbt analytics, orchestrated by Apache Airflow. See [README.md](README.md)
+for the narrative overview and the data-lineage diagram.
+
+> Note: the GitHub repo is `contract-driven-data-pipeline`, but internal identifiers are
+> intentionally unchanged — the Airflow `dag_id` stays `s3-to-postgres-etl` and the AWS
+> resource names keep `project_name = s3-spark-pg-etl` (renaming those would mean
+> destroying/recreating the deployed bucket/IAM/Glue/Athena).
 
 ## Repo structure
 
 ```
-s3-spark-pg-etl/
+contract-driven-data-pipeline/
 ├── dags/                       # Airflow DAG (TaskFlow API) — dag_id: s3-to-postgres-etl
 │   └── s3-spark-pg-etl.py
 ├── scripts/                    # ETL stage logic
