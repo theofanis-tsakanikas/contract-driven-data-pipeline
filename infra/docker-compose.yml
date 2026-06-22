@@ -21,15 +21,20 @@ x-airflow-common: # Define common configuration for Airflow services to avoid re
     AIRFLOW__METRICS__STATSD_PORT: 9125  # matches the statsd-exporter UDP listener below
     AIRFLOW__METRICS__STATSD_PREFIX: airflow
 
-    # Transform stage submits to the standalone Spark cluster by default. Blank this
-    # out (or set to local[*]) to run Spark in-process inside airflow-worker instead.
-    SPARK_MASTER: spark://spark-master:7077
+    # Transform-stage Spark master. Defaults to in-process local[*], which works on
+    # every architecture (incl. Apple Silicon / arm64). To use the standalone
+    # spark-master/spark-worker cluster, set SPARK_MASTER=spark://spark-master:7077
+    # in .env — that requires an amd64 host (the Spark image ships an x86_64 JDK).
+    SPARK_MASTER: ${SPARK_MASTER:-local[*]}
 
     # --- Airflow connections as code (declare-only, no manual UI steps) ---
     # Defined via the AIRFLOW_CONN_<CONN_ID> pattern so the stack is fully
     # reproducible after `docker compose up`. JSON form is used to avoid
     # URL-encoding issues with special characters in the AWS secret key.
-    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type": "spark", "host": "spark://spark-master", "port": 7077}'
+    # Default: spark-submit runs in-process (local[*]) inside airflow-worker — reliable
+    # on every architecture. To use the standalone cluster instead, set the host to
+    # "spark://spark-master" with "port": 7077 (and SPARK_MASTER to match) on an amd64 host.
+    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type": "spark", "host": "local[*]"}'
     AIRFLOW_CONN_AWS_DEFAULT: '{"conn_type": "aws", "login": "${AWS_ACCESS_KEY_ID}", "password": "${AWS_SECRET_ACCESS_KEY}", "extra": {"region_name": "${AWS_DEFAULT_REGION}"}}'
     AIRFLOW_CONN_POSTGRES_DEFAULT: '{"conn_type": "postgres", "login": "${DB_USER}", "password": "${DB_PASS}", "host": "${DB_HOST}", "port": ${DB_PORT}, "schema": "${TARGET_DB}"}'
 
@@ -155,6 +160,9 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_MAIL:-admin@admin.com} # Set default email for PgAdmin login, can be overridden by .env variable
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASS:-admin} # Set default password for PgAdmin login, can be overridden by .env variable
+      PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json  # pre-register the user_data server (imported on first init)
+    volumes:
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
     ports:
       - "5050:80"
     restart: unless-stopped
@@ -209,15 +217,58 @@ services:
     command:
       - "--statsd.listen-udp=:9125"
       - "--web.listen-address=:9102"
+      - "--statsd.mapping-config=/tmp/statsd_mapping.yml"
+    volumes:
+      - ./observability/statsd_mapping.yml:/tmp/statsd_mapping.yml:ro
     ports:
       - "9102:9102"   # Prometheus metrics endpoint
     restart: unless-stopped
     networks:
       - infra-network
 
+  # Prometheus — scrapes the Airflow metrics off statsd-exporter and stores them.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    depends_on:
+      - statsd-exporter
+    networks:
+      - infra-network
+
+  # Grafana — pipeline-observability dashboards over Prometheus (provisioned).
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASS:-admin}
+      GF_USERS_DEFAULT_THEME: dark
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./observability/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    networks:
+      - infra-network
+
 volumes:
   postgres:
   redis-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   infra-network:

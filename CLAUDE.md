@@ -1,14 +1,19 @@
 # CLAUDE.md — Engineering Reference
 
-Onboarding and engineering reference for **s3-spark-pg-etl**, a containerised ETL
-pipeline: Faker → AWS S3 → PySpark clean → PostgreSQL → dbt analytics, orchestrated
-by Apache Airflow. See [README.md](README.md) for the narrative overview and the
-data-lineage diagram.
+Onboarding and engineering reference for the **Contract-Driven Data Pipeline** (repo
+`contract-driven-data-pipeline`), a containerised ETL pipeline: Faker → AWS S3 → PySpark
+clean → PostgreSQL → dbt analytics, orchestrated by Apache Airflow. See [README.md](README.md)
+for the narrative overview and the data-lineage diagram.
+
+> Note: the GitHub repo is `contract-driven-data-pipeline`, but internal identifiers are
+> intentionally unchanged — the Airflow `dag_id` stays `s3-to-postgres-etl` and the AWS
+> resource names keep `project_name = s3-spark-pg-etl` (renaming those would mean
+> destroying/recreating the deployed bucket/IAM/Glue/Athena).
 
 ## Repo structure
 
 ```
-s3-spark-pg-etl/
+contract-driven-data-pipeline/
 ├── dags/                       # Airflow DAG (TaskFlow API) — dag_id: s3-to-postgres-etl
 │   └── s3-spark-pg-etl.py
 ├── scripts/                    # ETL stage logic
@@ -29,8 +34,10 @@ s3-spark-pg-etl/
 │   ├── requirements-airflow.txt
 │   ├── requirements-spark.txt
 │   ├── spark-defaults.conf
+│   ├── observability/          # Prometheus + Grafana (provisioned dashboard) + statsd mapping
 │   └── terraform/              # IaC: data-lake bucket + lifecycle, least-priv IAM, Glue crawler + Athena
 │       └── bootstrap/          # one-time: remote-state bucket + lock table + GitHub OIDC deployer role
+├── app/                        # Streamlit marts BI dashboard (live Postgres or demo)
 ├── tests/                      # pytest unit tests for the PySpark transform
 ├── Makefile                    # dev ergonomics: make up / run / tf-apply / crawler ... (make = help)
 ├── .github/workflows/ci.yml    # lint + test + smoke + dag-validate CI (the data/code plane)
@@ -72,17 +79,22 @@ docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 | `pgadmin` | Postgres UI | 5050 → 80 |
 | `spark-master` | standalone Spark master (see note below) | 8080, 7077 |
 | `spark-worker` | standalone Spark worker | 8081 (unpublished) |
+| `statsd-exporter` | Airflow StatsD → Prometheus bridge | 9102 |
+| `prometheus` | scrapes + stores Airflow metrics | 9090 |
+| `grafana` | pipeline-observability dashboards | 3000 |
 
-UIs: Airflow http://localhost:8088 · pgAdmin http://localhost:5050 · Spark master http://localhost:8080
+UIs: Airflow http://localhost:8088 · pgAdmin http://localhost:5050 · Spark master http://localhost:8080 · Grafana http://localhost:3000 (admin/admin) · Prometheus http://localhost:9090
 
-> **Note — Spark master is configurable.** The transform script uses
-> `SparkSession.builder.master(os.getenv("SPARK_MASTER", "local[*]"))`. Compose sets
-> `SPARK_MASTER=spark://spark-master:7077` in `airflow-common-env`, so DAG runs submit
-> to the standalone `spark-master`/`spark-worker` cluster (the `spark-clean-task` also
-> sets `conn_id='spark_default'`). Blank out `SPARK_MASTER` (or set it to `local[*]`)
-> to run Spark in-process inside `airflow-worker` instead — which is what standalone
-> script runs and the CI tests do, since they never set the variable. The transform
-> uses only Spark-SQL built-ins (no Python UDFs), so executors need no `--py-files`.
+> **Note — Spark runs in-process (`local[*]`) by default.** The transform script uses
+> `SparkSession.builder.master(os.getenv("SPARK_MASTER", "local[*]"))`, and compose
+> defaults both `SPARK_MASTER` and the `spark_default` connection to `local[*]`, so the
+> `spark-clean-task` runs Spark inside `airflow-worker` — reliable on every architecture,
+> **including Apple Silicon (arm64)**. The standalone `spark-master`/`spark-worker`
+> services are available but **opt-in**: to use the cluster, set `SPARK_MASTER` and the
+> `AIRFLOW_CONN_SPARK_DEFAULT` host to `spark://spark-master:7077` — which requires an
+> amd64 host (the Spark image's JDK is native per-arch, but distributed mode wasn't the
+> default for portability). The transform uses only Spark-SQL built-ins (no Python UDFs),
+> so executors need no `--py-files`.
 
 ## Triggering the DAG (`dag_id: s3-to-postgres-etl`)
 
@@ -127,6 +139,8 @@ loaded by compose via `--env-file` and `env_file`. Source of each:
 | `S3_FILE_KEY` | fallback object key; the DAG overrides it per run with `raw/dt=<ds>/dirty-data.csv` |
 | `LOCAL_REJECTS_PATH`, `DQ_REPORT_PATH` | quarantined rejects (with `rejection_reason`) + the per-run data-quality summary, under `/opt/airflow/data` |
 | `LOCAL_DIRTY_PATH`, `LOCAL_CLEAN_FOLDER`, `LOCAL_CLEAN_PATH` | container staging paths under `/opt/airflow/data` |
+| `N_DIRTY_RECORDS` | how many synthetic rows ingestion generates (default 100; bump for a fuller demo) |
+| `GRAFANA_USER`, `GRAFANA_PASS` | Grafana UI login (default `admin`/`admin`) |
 | `AIRFLOW_UID`, `AIRFLOW_GID` | file ownership for mounts (`1000:0`) |
 
 ### Connections as code
@@ -135,7 +149,7 @@ No manual UI connection setup is required. Connections are declared in
 `infra/docker-compose.yml` via the `AIRFLOW_CONN_<ID>` env-var pattern (JSON form,
 interpolated from `.env`):
 
-- `AIRFLOW_CONN_SPARK_DEFAULT` → `spark://spark-master:7077`
+- `AIRFLOW_CONN_SPARK_DEFAULT` → `local[*]` (in-process; opt into the cluster with `spark://spark-master:7077`)
 - `AIRFLOW_CONN_AWS_DEFAULT` → IAM creds + region
 - `AIRFLOW_CONN_POSTGRES_DEFAULT` → target Postgres
 
@@ -202,10 +216,15 @@ have different lifecycles and are driven by different tools.
   partitions so the bucket doesn't grow unbounded.
 - **AWS creds / region.** Missing/invalid `AWS_*` → ingestion fails at upload, or boto3
   raises `NoRegionError`. Region must match where the bucket can be created.
-- **StatsD metrics.** Compose runs a `statsd-exporter` service (`prom/statsd-exporter`)
-  that receives Airflow's UDP StatsD metrics on `:9125` and exposes a Prometheus scrape
-  endpoint on `localhost:9102/metrics`. There is no Prometheus/Grafana wired up yet — add
-  one pointing at `statsd-exporter:9102` if you want the metrics stored and graphed.
+- **Observability (StatsD → Prometheus → Grafana).** Airflow emits UDP StatsD metrics →
+  `statsd-exporter` (`:9125` in, `:9102/metrics` out, cleaned up by
+  `infra/observability/statsd_mapping.yml`) → `prometheus` (`:9090`) scrapes them →
+  `grafana` (`:3000`, admin/admin) renders the provisioned **Airflow — Pipeline
+  Observability** dashboard (`infra/observability/grafana/dashboards/`). It shows ops metrics
+  (per-task & DAG-run durations, task finishes by state, heartbeat) **and data quality** — the
+  Spark clean task emits `airflow.dq.*` gauges (accept-rate, accepted/rejected,
+  rejections-by-reason) via `_emit_dq_metrics`. The marts themselves are visualised by the
+  Streamlit app / Athena instead.
 - **Empty result set.** If PySpark filters out every row, `clean_data.csv` is empty and
   `load_to_db_final.py` short-circuits with a warning (no rows inserted).
 - **Rejects + DQ report are run artifacts.** The clean task also writes
@@ -215,8 +234,12 @@ have different lifecycles and are driven by different tools.
   zones (non-fatal if that upload fails). The validation rules live once in
   `scripts/data_contract.py`; regenerate the committed `docs/governance/DATA_DICTIONARY.md`
   with `python scripts/data_contract.py` (CI's `--check` fails if it drifts).
-- **Spark master.** Configurable via `SPARK_MASTER` (see the cluster note above); compose
-  defaults it to the standalone cluster, CI/standalone runs fall back to `local[*]`.
+- **Spark master.** Defaults to in-process `local[*]` (compose sets both `SPARK_MASTER`
+  and `spark_default` to it) for cross-arch portability; opt into the standalone cluster
+  via `SPARK_MASTER`/`AIRFLOW_CONN_SPARK_DEFAULT` on amd64. See the cluster note above.
+- **Apple Silicon / arm64.** The Dockerfiles install an **arch-aware Temurin JDK**
+  (`aarch64` on arm64, `x64` on amd64). An x64-only JDK fails on arm64 with
+  `qemu-x86_64: Could not open '/lib64/ld-linux-x86-64.so.2'` and crashes `spark-submit`.
 - **dbt dependency isolation.** dbt is intentionally in its own venv. Do **not** add
   `dbt-postgres` to `requirements-airflow.txt` — it can conflict with Airflow's pins.
 - **`docker compose` env file path.** Always pass both `--env-file .env` and

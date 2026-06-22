@@ -93,6 +93,14 @@ runs: ## List recent DAG runs and their state
 crawler: ## Run the Glue crawler so Athena sees the latest lake data
 	aws glue start-crawler --name "$$($(TF) output -raw glue_crawler_name)"
 
+.PHONY: app
+app: ## Launch the Streamlit marts dashboard (http://localhost:8501)
+	@if [ ! -x app/.venv/bin/streamlit ]; then \
+		echo "Setting up app venv..."; \
+		python3 -m venv app/.venv && app/.venv/bin/pip install -q -r app/requirements.txt; \
+	fi
+	app/.venv/bin/streamlit run app/streamlit_app.py
+
 .PHONY: clean
 clean: ## Stop the stack and remove volumes (DESTROYS local DB data)
 	$(COMPOSE) down -v

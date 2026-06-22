@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "ETL — user_data",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "user_data",
+      "Username": "airflow",
+      "Comment": "Cleaned analytics DB (users + dbt marts). Password: see DB_PASS in .env."
+    }
+  }
+}

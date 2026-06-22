@@ -1,0 +1,52 @@
+# Maps Airflow's dotted StatsD metric names into clean Prometheus metrics with
+# labels (dag_id / task_id / state), instead of baking those into the metric
+# name. Unmatched metrics still pass through with default naming.
+mappings:
+  # Airflow 2.11 publishes timers in SECONDS (timer_unit_consistency off).
+  - match: "airflow.dagrun.duration.success.*"
+    name: "airflow_dagrun_duration_success_seconds"
+    labels:
+      dag_id: "$1"
+  - match: "airflow.dagrun.duration.failed.*"
+    name: "airflow_dagrun_duration_failed_seconds"
+    labels:
+      dag_id: "$1"
+  - match: "airflow.dagrun.*.first_task_scheduling_delay"
+    name: "airflow_dagrun_first_task_scheduling_delay_ms"
+    labels:
+      dag_id: "$1"
+  - match: "airflow.ti.finish.*.*.*"
+    name: "airflow_task_finish_total"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+      state: "$3"
+  - match: "airflow.ti.start.*.*"
+    name: "airflow_task_start_total"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+  - match: "airflow.pool.open_slots.*"
+    name: "airflow_pool_open_slots"
+    labels:
+      pool: "$1"
+  - match: "airflow.pool.running_slots.*"
+    name: "airflow_pool_running_slots"
+    labels:
+      pool: "$1"
+
+  # Per-task duration (ms) — which ETL stage is the bottleneck.
+  - match: "airflow.dag.*.*.duration"
+    name: "airflow_task_duration_seconds"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+
+  # Custom data-quality gauges emitted by the Spark clean task (_emit_dq_metrics).
+  # Specific (per-reason) must come before the generic airflow.dq.* catch-all.
+  - match: "airflow.dq.rejected_by_reason.*"
+    name: "airflow_dq_rejected_by_reason"
+    labels:
+      reason: "$1"
+  - match: "airflow.dq.*"
+    name: "airflow_dq_$1"
