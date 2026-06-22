@@ -283,7 +283,10 @@ def clean_data_with_spark(
     _emit_dq_metrics(report)  # surface data quality on the Grafana dashboard
     if dq_report_path:
         with open(dq_report_path, "w", encoding="utf-8") as fh:
-            json.dump(report.to_dict(), fh, indent=2)
+            # Single-line JSON (NDJSON): Athena's JSON SerDe reads line-by-line, so a
+            # pretty-printed multi-line object fails with HIVE_CURSOR_ERROR. One compact
+            # line per file keeps the quality zone queryable in Athena.
+            fh.write(json.dumps(report.to_dict()) + "\n")
         logger.info(f"✅ Data-quality report written to: {dq_report_path}")
         if raw_s3_key:
             _upload_artifact(bucket_name, dq_report_path, _zone_key(raw_s3_key, "quality", "dq_report.json"))
