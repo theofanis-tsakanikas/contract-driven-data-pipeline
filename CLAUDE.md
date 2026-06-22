@@ -72,8 +72,11 @@ docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 | `pgadmin` | Postgres UI | 5050 → 80 |
 | `spark-master` | standalone Spark master (see note below) | 8080, 7077 |
 | `spark-worker` | standalone Spark worker | 8081 (unpublished) |
+| `statsd-exporter` | Airflow StatsD → Prometheus bridge | 9102 |
+| `prometheus` | scrapes + stores Airflow metrics | 9090 |
+| `grafana` | pipeline-observability dashboards | 3000 |
 
-UIs: Airflow http://localhost:8088 · pgAdmin http://localhost:5050 · Spark master http://localhost:8080
+UIs: Airflow http://localhost:8088 · pgAdmin http://localhost:5050 · Spark master http://localhost:8080 · Grafana http://localhost:3000 (admin/admin) · Prometheus http://localhost:9090
 
 > **Note — Spark runs in-process (`local[*]`) by default.** The transform script uses
 > `SparkSession.builder.master(os.getenv("SPARK_MASTER", "local[*]"))`, and compose
@@ -204,10 +207,13 @@ have different lifecycles and are driven by different tools.
   partitions so the bucket doesn't grow unbounded.
 - **AWS creds / region.** Missing/invalid `AWS_*` → ingestion fails at upload, or boto3
   raises `NoRegionError`. Region must match where the bucket can be created.
-- **StatsD metrics.** Compose runs a `statsd-exporter` service (`prom/statsd-exporter`)
-  that receives Airflow's UDP StatsD metrics on `:9125` and exposes a Prometheus scrape
-  endpoint on `localhost:9102/metrics`. There is no Prometheus/Grafana wired up yet — add
-  one pointing at `statsd-exporter:9102` if you want the metrics stored and graphed.
+- **Observability (StatsD → Prometheus → Grafana).** Airflow emits UDP StatsD metrics →
+  `statsd-exporter` (`:9125` in, `:9102/metrics` out, cleaned up by
+  `infra/observability/statsd_mapping.yml`) → `prometheus` (`:9090`) scrapes them →
+  `grafana` (`:3000`, admin/admin) renders the provisioned **Airflow — Pipeline
+  Observability** dashboard (`infra/observability/grafana/dashboards/`). This monitors the
+  *pipeline* (run durations, task finishes by state, heartbeat); the *data* is visualised
+  by the Streamlit app and the Athena saved queries instead.
 - **Empty result set.** If PySpark filters out every row, `clean_data.csv` is empty and
   `load_to_db_final.py` short-circuits with a warning (no rows inserted).
 - **Rejects + DQ report are run artifacts.** The clean task also writes

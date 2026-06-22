@@ -214,15 +214,58 @@ services:
     command:
       - "--statsd.listen-udp=:9125"
       - "--web.listen-address=:9102"
+      - "--statsd.mapping-config=/tmp/statsd_mapping.yml"
+    volumes:
+      - ./observability/statsd_mapping.yml:/tmp/statsd_mapping.yml:ro
     ports:
       - "9102:9102"   # Prometheus metrics endpoint
     restart: unless-stopped
     networks:
       - infra-network
 
+  # Prometheus — scrapes the Airflow metrics off statsd-exporter and stores them.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    depends_on:
+      - statsd-exporter
+    networks:
+      - infra-network
+
+  # Grafana — pipeline-observability dashboards over Prometheus (provisioned).
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASS:-admin}
+      GF_USERS_DEFAULT_THEME: dark
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./observability/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    networks:
+      - infra-network
+
 volumes:
   postgres:
   redis-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   infra-network:

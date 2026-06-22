@@ -1,0 +1,62 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "schemaVersion": 39,
+  "title": "Airflow — Pipeline Observability",
+  "tags": ["airflow", "etl"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Monitoring target up",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "1": { "text": "UP", "color": "green" }, "0": { "text": "DOWN", "color": "red" } } }], "color": { "mode": "thresholds" } }, "overrides": [] },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "up{job=\"airflow-statsd\"}" }]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Scheduler heartbeat (per min)",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(airflow_scheduler_heartbeat[5m])) * 60" }]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Task finishes by state",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (state) (airflow_task_finish_total)", "legendFormat": "{{state}}" }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "DAG run duration — success (ms)",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 10, "pointSize": 6 } }, "overrides": [] },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "airflow_dagrun_duration_success_ms", "legendFormat": "{{dag_id}}" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Executor — running / queued tasks",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "airflow_executor_running_tasks", "legendFormat": "running" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "airflow_executor_queued_tasks", "legendFormat": "queued" }
+      ]
+    }
+  ]
+}
