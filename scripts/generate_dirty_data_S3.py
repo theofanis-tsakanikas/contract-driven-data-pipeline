@@ -73,14 +73,19 @@ def random_city() -> str:
         return ""
 
 def create_dirty_data(filepath: str) -> None:
-    """Create a dirty CSV file with random data."""
+    """Create a dirty CSV file with random data.
+
+    Row count is configurable via the ``N_DIRTY_RECORDS`` env var (default 100) —
+    bump it (e.g. 1000) for a fuller demo without changing code.
+    """
+    n_records = int(os.getenv("N_DIRTY_RECORDS", "100"))
     with open(filepath, mode="w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         # Writing header for the CSV file
         writer.writerow(["id", "name", "email", "phone", "zip_code", "age", "city"])
 
-        # Generate random data for 100 records
-        for i in range(1, 101):
+        # Generate random data for the configured number of records
+        for i in range(1, n_records + 1):
             name = random_name()
             email = random_email(name) if name else ""
             phone = random_phone()

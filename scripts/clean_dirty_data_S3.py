@@ -192,6 +192,39 @@ def data_quality_report(df: DataFrame) -> DQReport:
     finally:
         df.unpersist()
 
+def _emit_dq_metrics(report: DQReport) -> None:
+    """Push the data-quality summary to StatsD as gauges (for Prometheus/Grafana).
+
+    Sends ``airflow.dq.*`` gauges (total / accepted / rejected / accept_rate and
+    per-reason counts) over UDP to the StatsD host Airflow is already configured
+    with, so the data-quality of every run shows up on the Grafana dashboard
+    alongside the operational metrics. Non-fatal and a no-op if no StatsD host is
+    configured (e.g. standalone / CI runs).
+    """
+    host = os.getenv("AIRFLOW__METRICS__STATSD_HOST") or os.getenv("STATSD_HOST")
+    if not host:
+        return
+    port = int(os.getenv("AIRFLOW__METRICS__STATSD_PORT") or os.getenv("STATSD_PORT") or 9125)
+    metrics = [
+        f"airflow.dq.total:{report.total}|g",
+        f"airflow.dq.accepted:{report.accepted}|g",
+        f"airflow.dq.rejected:{report.rejected}|g",
+        f"airflow.dq.accept_rate:{round(report.accept_rate, 4)}|g",
+    ]
+    metrics += [f"airflow.dq.rejected_by_reason.{reason}:{count}|g" for reason, count in report.by_reason.items()]
+    try:
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            for m in metrics:
+                sock.sendto(m.encode("utf-8"), (host, port))
+        finally:
+            sock.close()
+        logger.info("📡 Emitted %d data-quality gauges to StatsD %s:%d", len(metrics), host, port)
+    except OSError as e:
+        logger.warning("⚠️ Could not emit data-quality metrics to StatsD (non-fatal): %s", e)
+
+
 def _write_single_csv(df: DataFrame, temp_folder: str, final_path: str) -> None:
     """Write a DataFrame as one header CSV at ``final_path`` (coalesce + move)."""
     df.coalesce(1).write.option("header", True).option("encoding", "UTF-8").mode("overwrite").csv(temp_folder)
@@ -247,6 +280,7 @@ def clean_data_with_spark(
     # Data-quality report (total / accepted / rejected-by-reason) for this run.
     report = data_quality_report(raw)
     logger.info("📊 Data quality: %s", json.dumps(report.to_dict()))
+    _emit_dq_metrics(report)  # surface data quality on the Grafana dashboard
     if dq_report_path:
         with open(dq_report_path, "w", encoding="utf-8") as fh:
             json.dump(report.to_dict(), fh, indent=2)

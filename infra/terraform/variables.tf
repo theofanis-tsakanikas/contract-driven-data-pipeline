@@ -47,15 +47,3 @@ variable "glue_crawler_schedule" {
   type        = string
   default     = ""
 }
-
-variable "enable_quicksight" {
-  description = "Create the QuickSight Athena data source + dataset (see quicksight.tf). PAID service; requires an active QuickSight subscription. Off by default."
-  type        = bool
-  default     = false
-}
-
-variable "quicksight_principal_arn" {
-  description = "QuickSight user/group ARN that owns the data source/dataset (only used when enable_quicksight = true)."
-  type        = string
-  default     = ""
-}
