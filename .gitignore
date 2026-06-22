@@ -36,3 +36,12 @@ ENV/
 .idea/
 .vscode/
 *.swp
+# === Pre-publish security baseline (added 2026-06-22) ===
+PRE-PUBLISH.md
+*.pem
+*.key
+*.p12
+*.pfx
+*.tfstate
+*.tfvars
+.terraform/
