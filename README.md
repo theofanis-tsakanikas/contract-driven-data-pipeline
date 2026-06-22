@@ -82,8 +82,9 @@ The Airflow DAG runs five tasks in order — `run_ingestion → spark-clean-task
 
 ### 🧬 Data Lineage
 
-End-to-end flow from raw S3 to the dbt analytics layer. The dotted arrows map each
-Airflow task to the stage it drives.
+End-to-end flow from raw S3, through the cleaning contract, to the dbt analytics layer
+and its **consumers** (Athena over the lake, Grafana for quality/ops, Streamlit BI).
+The dotted arrows map each Airflow task to the stage it drives.
 
 ```mermaid
 flowchart TD
@@ -93,23 +94,33 @@ flowchart TD
     end
 
     GEN["generate_dirty_data_S3.py<br/>Faker · N dirty rows (N_DIRTY_RECORDS, default 100)"]
-    S3["AWS S3 (retained)<br/>s3://&lt;S3_BUCKET_NAME&gt;/raw/dt=&lt;ds&gt;/dirty-data.csv"]
-    SPARK["clean_dirty_data_S3.py<br/>PySpark (SPARK_MASTER: cluster or local[*]) · data_contract.py · md5 user_id"]
+    S3["AWS S3 — raw zone (lifecycle-managed)<br/>raw/dt=&lt;ds&gt;/dirty-data.csv"]
+    SPARK["clean_dirty_data_S3.py<br/>PySpark · data_contract.py · md5 user_id"]
     CSV["Local staging<br/>/opt/airflow/data/clean_data.csv"]
-    REJ["Quarantine + DQ report<br/>local + S3 rejects/dt=&lt;ds&gt;/ · quality/dt=&lt;ds&gt;/"]
+    REJ["AWS S3 — rejects/ + quality/ zones<br/>rejected_data.csv · dq_report.json"]
     PG[("PostgreSQL<br/>user_data.users")]
     STG["dbt: stg_users<br/>silver · email_domain, age_band"]
     M1["dbt: users_by_city"]
     M2["dbt: users_by_age_band"]
 
+    subgraph CONS["📊 Consumption"]
+        ATH["Amazon Athena<br/>SQL over the lake (Glue catalog)"]
+        GRAF["Grafana<br/>ops + data-quality metrics"]
+        ST["Streamlit<br/>marts BI dashboard"]
+    end
+
     GEN -->|upload| S3
     S3 -->|download| SPARK
     SPARK -->|accepted| CSV
     SPARK -->|rejected + reason| REJ
+    SPARK -->|DQ metrics| GRAF
     CSV -->|execute_values upsert| PG
     PG --> STG
     STG --> M1
     STG --> M2
+    S3 --> ATH
+    REJ --> ATH
+    PG -->|live BI| ST
 
     T1 -.-> GEN
     T2 -.-> SPARK
@@ -117,6 +128,41 @@ flowchart TD
     T4 -.-> STG
     T5 -.-> STG
 ```
+
+### 🏗️ Infrastructure & Deployment (control plane)
+
+Kept **separate from the data lineage on purpose** — provisioning has a different
+lifecycle than the data flow. Terraform manages the AWS side; a one-time bootstrap
+creates the remote state + a GitHub OIDC role, and the main config is applied either
+locally or from a manual GitHub Actions button (no stored AWS keys).
+
+```mermaid
+flowchart LR
+    subgraph BOOT["1 · Bootstrap — once, locally (admin)"]
+        TFB["terraform/bootstrap"]
+        TFB --> STATE["S3 remote state<br/>+ DynamoDB lock"]
+        TFB --> OIDC["GitHub OIDC provider<br/>+ deployer IAM role"]
+    end
+
+    subgraph GH["2 · GitHub Actions — control plane"]
+        PR["Pull Request"] -->|plan| TF["terraform/ (main config)"]
+        BTN["Run workflow ▶ apply<br/>(production approval)"] -->|assume role via OIDC| TF
+    end
+
+    subgraph AWS["3 · AWS — provisioned (data plane resources)"]
+        BUCKET["S3 data-lake bucket<br/>+ lifecycle rules"]
+        IAM["least-privilege<br/>pipeline IAM user"]
+        GLUE["Glue crawler + catalog"]
+        ATHENA["Athena workgroup"]
+    end
+
+    OIDC -. trusts this repo .-> BTN
+    STATE -. S3 backend .-> TF
+    TF --> BUCKET & IAM & GLUE & ATHENA
+```
+
+> The ETL itself is **not** run from GitHub — that is Airflow's job (the data plane).
+> GitHub provisions/deploys infra; Airflow runs the pipeline.
 
 ---
 
