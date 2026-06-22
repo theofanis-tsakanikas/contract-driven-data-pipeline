@@ -1,0 +1,8 @@
+# Local secret-scanning guardrail. Enable once with:
+#   pip install pre-commit && pre-commit install
+# gitleaks then scans staged changes on every commit.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
