@@ -373,9 +373,9 @@ complete with the `success` state — one click in the UI runs the whole platfor
 ### 2 · The contract at work — dirty → clean
 
 The headline of the project: a declarative **data contract** validates every row.
-Out of the generated rows (default 100, configurable via `N_DIRTY_RECORDS`), only the
-valid ones pass (~16–19%); the rest are **not lost** — each is quarantined with the rule
-it violated.
+The run shown here generated 1,000 rows (the default is 100 — bump `N_DIRTY_RECORDS` for a
+fuller demo); only the valid ones pass (~16–19%), and the rest are **not lost** — each is
+quarantined with the rule it violated.
 
 **Before — raw, dirty data (Amazon Athena over S3):** whitespace, negative ages, invalid
 emails, empty fields.
