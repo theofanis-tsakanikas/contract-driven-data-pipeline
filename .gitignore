@@ -31,6 +31,9 @@ venv/
 env/
 ENV/
 
+# === 🎬 Promo / screen recordings (large binaries) ===
+promo/
+
 # === ⚙️ OS & IDE specific ===
 .DS_Store
 .idea/
