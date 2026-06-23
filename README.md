@@ -1,5 +1,3 @@
-<div style="background-color:#fff8e7; color:#2b2b2b; padding:20px; border-radius:10px;">
-
 # 🚀 Contract-Driven Data Pipeline
 
 > An end-to-end, containerized ETL platform where a declarative **data contract** is the single source of truth — driving validation, rejection lineage, and PII classification.
@@ -224,7 +222,7 @@ contract-driven-data-pipeline/
 | Apache Spark 3.5.2 | Distributed Processing & Cleaning | pyspark, pyarrow |
 | AWS S3 / Boto3 | Cloud Object Storage (data lake) | boto3, botocore |
 | PostgreSQL 16 | Target Relational Database | psycopg2-binary, execute_values |
-| dbt 1.8 (postgres) | Analytics / marts (silver-gold) | dbt-core, dbt-postgres |
+| dbt 1.8 (postgres) | Analytics / marts (silver/marts) | dbt-core, dbt-postgres |
 | Terraform | IaC: bucket, IAM, Glue, Athena (+ OIDC) | hashicorp/aws ~> 5 |
 | Glue + Athena | Catalog + SQL over the S3 lake | Glue crawler, Athena workgroup |
 | Prometheus + Grafana | Pipeline & data-quality observability | statsd-exporter, provisioned dashboards |
@@ -329,7 +327,7 @@ make app         # launch the Streamlit marts dashboard (http://localhost:8501)
 
 **1. Data Contract, Cleaning & Lineage (PySpark)**
 
-The transformation step enforces an **explicit, declared data contract** — a single source of truth (`scripts/data_contract.py`) the accept filter, the rejection reasons, the PII classification, and the generated [data dictionary](docs/governance/DATA_DICTIONARY.md) are all built from, so they can never disagree:
+The transformation step enforces an **explicit, declared data contract** — a single source of truth (`scripts/data_contract.py`) that the accept filter, the rejection reasons, the PII classification, and the generated [data dictionary](docs/governance/DATA_DICTIONARY.md) are all built from, so they can never disagree:
 
 * **Schema Enforcement:** Uses StructType to force strict data types upon reading the CSV file.
 * **Declared validation rules** (from the contract): non-empty name/city, regex-validated email, Greek mobile (`69` + 8 digits), 5-digit zip code, and adult age `[18, 99]`.
@@ -404,7 +402,7 @@ Not just *whether* the pipeline ran, but *how good the data was* — surfaced in
 
 ### 4 · Analytics & BI
 
-The dbt silver/gold marts, and a Streamlit dashboard over them.
+The dbt silver/marts layer, and a Streamlit dashboard over them.
 
 ![PostgreSQL dbt mart (users_by_age_band / users_by_city) in pgAdmin](images/postgres-marts.png)
 
