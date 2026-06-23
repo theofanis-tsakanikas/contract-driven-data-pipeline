@@ -40,8 +40,10 @@ contract-driven-data-pipeline/
 ├── app/                        # Streamlit marts BI dashboard (live Postgres or demo)
 ├── tests/                      # pytest unit tests for the PySpark transform
 ├── Makefile                    # dev ergonomics: make up / run / tf-apply / crawler ... (make = help)
+├── pyproject.toml              # ruff lint config (conservative E4/E7/E9 + F ruleset)
 ├── .github/workflows/ci.yml    # lint + test + smoke + dag-validate CI (the data/code plane)
 ├── .github/workflows/terraform.yml  # Terraform plan (PR) + apply (manual button, OIDC) — the infra plane
+├── .github/workflows/gitleaks.yml   # secret-scanning on push/PR (pre-publish security baseline)
 ├── data/  logs/                # runtime mounts (gitignored)
 ├── .env / .env.example         # configuration (.env is gitignored)
 └── README.md

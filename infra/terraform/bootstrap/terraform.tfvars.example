@@ -1,7 +1,7 @@
 # Copy to terraform.tfvars and fill in. Run once, locally, with admin AWS creds.
 
 aws_region        = "eu-central-1"
-github_repository = "theofanis-tsakanikas/s3-spark-pg-etl"
+github_repository = "theofanis-tsakanikas/contract-driven-data-pipeline"
 state_bucket_name = "your-globally-unique-tfstate-bucket"
 
 # Optional overrides (defaults shown):
