@@ -75,10 +75,10 @@ def random_city() -> str:
 def create_dirty_data(filepath: str) -> None:
     """Create a dirty CSV file with random data.
 
-    Row count is configurable via the ``N_DIRTY_RECORDS`` env var (default 100) —
-    bump it (e.g. 1000) for a fuller demo without changing code.
+    Row count is configurable via the ``N_DIRTY_RECORDS`` env var (default 1000) —
+    set it lower (e.g. 100) for a quicker demo without changing code.
     """
-    n_records = int(os.getenv("N_DIRTY_RECORDS", "100"))
+    n_records = int(os.getenv("N_DIRTY_RECORDS", "1000"))
     with open(filepath, mode="w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         # Writing header for the CSV file

@@ -52,7 +52,8 @@ def test_name_and_city_inject_empties():
     assert "" in _sample(gen.random_city)
 
 
-def test_create_dirty_data_writes_100_rows_with_header(tmp_path):
+def test_create_dirty_data_writes_configured_rows_with_header(tmp_path, monkeypatch):
+    monkeypatch.setenv("N_DIRTY_RECORDS", "100")  # explicit: don't couple to the default
     out = tmp_path / "dirty.csv"
     random.seed(1234)
     gen.create_dirty_data(str(out))
