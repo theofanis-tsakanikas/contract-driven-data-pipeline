@@ -71,7 +71,7 @@ production-minded analytics stack running entirely on a local machine via Docker
 
 The Airflow DAG runs five tasks in order — `run_ingestion → spark-clean-task → run_loading → run_dbt → run_dbt_test`:
 
-1. **Ingestion (Python & Boto3):** Generates synthetic dirty data with Faker (default 100 rows, configurable via `N_DIRTY_RECORDS`) and uploads the raw CSV to AWS S3 under a date-partitioned key (`raw/dt=<ds>/dirty-data.csv`). The bucket is **provisioned by Terraform** (the pipeline only writes objects — no `s3:CreateBucket`), and the raw zone is **retained** under a lifecycle rule for an auditable history. Credentials come from the `aws_default` Airflow connection (`S3Hook`).
+1. **Ingestion (Python & Boto3):** Generates synthetic dirty data with Faker (default 1000 rows, configurable via `N_DIRTY_RECORDS`) and uploads the raw CSV to AWS S3 under a date-partitioned key (`raw/dt=<ds>/dirty-data.csv`). The bucket is **provisioned by Terraform** (the pipeline only writes objects — no `s3:CreateBucket`), and the raw zone is **retained** under a lifecycle rule for an auditable history. Credentials come from the `aws_default` Airflow connection (`S3Hook`).
 2. **Transformation (PySpark & SparkSubmitOperator):** Spark pulls the raw CSV from S3 and enforces the declared [data contract](docs/governance/DATA_DICTIONARY.md). Valid rows are cleaned (MD5 pseudonymised `user_id`) and loaded; **rejected rows are quarantined with their `rejection_reason`** (lineage) and a per-run **data-quality report** (`dq_report.json`) is written, logged, **emitted to Grafana** as metrics, and uploaded back to S3 (`rejects/` + `quality/` zones).
 3. **Loading (Python & Psycopg2):** Performs an efficient bulk insert using `execute_values` into PostgreSQL with upsert logic (`ON CONFLICT DO NOTHING`), using the `postgres_default` Airflow connection.
 4. **Analytics (dbt):** `run_dbt` builds the silver/marts layer (`stg_users` → `users_by_city`, `users_by_age_band`); `run_dbt_test` runs the schema tests, so a bad load fails the DAG instead of publishing broken marts.
@@ -91,7 +91,7 @@ flowchart TD
         T1["run_ingestion"] --> T2["spark-clean-task"] --> T3["run_loading"] --> T4["run_dbt"] --> T5["run_dbt_test"]
     end
 
-    GEN["generate_dirty_data_S3.py<br/>Faker · N dirty rows (N_DIRTY_RECORDS, default 100)"]
+    GEN["generate_dirty_data_S3.py<br/>Faker · N dirty rows (N_DIRTY_RECORDS, default 1000)"]
     S3["AWS S3 — raw zone (lifecycle-managed)<br/>raw/dt=&lt;ds&gt;/dirty-data.csv"]
     SPARK["clean_dirty_data_S3.py<br/>PySpark · data_contract.py · md5 user_id"]
     CSV["Local staging<br/>/opt/airflow/data/clean_data.csv"]
@@ -292,8 +292,8 @@ S3_BUCKET_NAME=your-s3-bucket-name
 S3_FILE_KEY=raw/dirty-data.csv
 
 # === 📂 Local Staging Paths ===
-# N_DIRTY_RECORDS = how many rows ingestion generates (default 100; bump for a fuller demo)
-N_DIRTY_RECORDS=100
+# N_DIRTY_RECORDS = how many rows ingestion generates (default 1000; lower for a quicker demo)
+N_DIRTY_RECORDS=1000
 LOCAL_DIRTY_PATH=/opt/airflow/data/dirty_data.csv
 LOCAL_CLEAN_FOLDER=/opt/airflow/data/clean_data
 LOCAL_CLEAN_PATH=/opt/airflow/data/clean_data.csv
@@ -373,9 +373,9 @@ complete with the `success` state — one click in the UI runs the whole platfor
 ### 2 · The contract at work — dirty → clean
 
 The headline of the project: a declarative **data contract** validates every row.
-The run shown here generated 1,000 rows (the default is 100 — bump `N_DIRTY_RECORDS` for a
-fuller demo); only the valid ones pass (~16–19%), and the rest are **not lost** — each is
-quarantined with the rule it violated.
+This run generated 1,000 rows (the default; set `N_DIRTY_RECORDS` lower for a quicker demo);
+only the valid ones pass (~16–19%), and the rest are **not lost** — each is quarantined with
+the rule it violated.
 
 **Before — raw, dirty data (Amazon Athena over S3):** whitespace, negative ages, invalid
 emails, empty fields.

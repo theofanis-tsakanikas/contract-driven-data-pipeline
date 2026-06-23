@@ -141,7 +141,7 @@ loaded by compose via `--env-file` and `env_file`. Source of each:
 | `S3_FILE_KEY` | fallback object key; the DAG overrides it per run with `raw/dt=<ds>/dirty-data.csv` |
 | `LOCAL_REJECTS_PATH`, `DQ_REPORT_PATH` | quarantined rejects (with `rejection_reason`) + the per-run data-quality summary, under `/opt/airflow/data` |
 | `LOCAL_DIRTY_PATH`, `LOCAL_CLEAN_FOLDER`, `LOCAL_CLEAN_PATH` | container staging paths under `/opt/airflow/data` |
-| `N_DIRTY_RECORDS` | how many synthetic rows ingestion generates (default 100; bump for a fuller demo) |
+| `N_DIRTY_RECORDS` | how many synthetic rows ingestion generates (default 1000; lower for a quicker demo) |
 | `GRAFANA_USER`, `GRAFANA_PASS` | Grafana UI login (default `admin`/`admin`) |
 | `AIRFLOW_UID`, `AIRFLOW_GID` | file ownership for mounts (`1000:0`) |
 
