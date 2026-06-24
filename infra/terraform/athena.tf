@@ -62,13 +62,13 @@ resource "aws_athena_named_query" "accept_rate_over_time" {
 # Sanity peek at the raw zone for a given partition.
 resource "aws_athena_named_query" "raw_sample" {
   name        = "raw_sample"
-  description = "First 100 raw rows for the most recent partition."
+  description = "First 1000 raw rows for the most recent partition (the full default run)."
   database    = aws_glue_catalog_database.lake.name
   workgroup   = aws_athena_workgroup.lake.name
   query       = <<-SQL
     SELECT *
     FROM raw
     ORDER BY dt DESC
-    LIMIT 100;
+    LIMIT 1000;
   SQL
 }
