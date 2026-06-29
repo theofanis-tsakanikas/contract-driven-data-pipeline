@@ -35,7 +35,7 @@ ENV/
 promo/
 
 # === 📣 Personal launch / brand assets (kept local, not part of the project) ===
-linkedin-launch/
+linkedin/
 images/TT_logo.png
 images/banner_old.png
 
