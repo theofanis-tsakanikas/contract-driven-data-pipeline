@@ -98,10 +98,10 @@ pass the four CI gates before merging.
 
 ### SQL
 
-`CREATE DATABASE` and the bulk `INSERT` both compose their identifiers with `psycopg2.sql.Identifier`
-rather than interpolating them ([`load_to_db_final.py`](scripts/load_to_db_final.py)). Column names
-originate from the pipeline's own contract-defined schema, but a tampered intermediate CSV must not
-be able to reach the SQL text. Values are always parameterised through `execute_values`.
+Values are always parameterised — `execute_values` binds every row, so no data value is ever
+interpolated into a statement. `CREATE DATABASE` composes its identifier with
+`psycopg2.sql.Identifier`. See limitation 10 for the one place identifiers are still interpolated,
+and why it was left alone.
 
 ---
 
@@ -162,10 +162,15 @@ Prometheus (`:9090`) and the Spark master UI (`:8080`) have **no authentication 
 Grafana and pgAdmin read their admin credentials from `.env`, whose committed template
 ([`.env.example`](.env.example)) ships `change_me` placeholders.
 
-Mitigated by binding **every** published port to `127.0.0.1` in
-[`infra/docker-compose.yml`](infra/docker-compose.yml), so nothing is reachable from the LAN even on
-an untrusted network. Change the placeholder passwords before running this anywhere shared, and do
-not remove the loopback prefix to "make it reachable from another machine".
+**The services also publish on all interfaces** (`"5432:5432"` rather than `"127.0.0.1:5432:5432"`),
+so on an untrusted network they are reachable from the LAN. The Airflow Config view is likewise left
+on (`AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'True'`), and it renders `airflow.cfg` including the
+metadata-DB connection string.
+
+*Before running this anywhere shared:* change the placeholder passwords, prefix every published port
+with `127.0.0.1:`, and set `EXPOSE_CONFIG` to `'False'`. All three were deliberately left at their
+developer-friendly defaults rather than changed under a working, deployed stack — the trade-off is
+stated here instead.
 
 ### 7. The Streamlit dashboard has no authentication
 
@@ -180,7 +185,19 @@ Trivy/Grype step and no signed provenance.
 *A deployment would* add an image scan to CI and publish an SBOM. Named here rather than left for a
 reviewer to notice.
 
-### 9. Airflow runs everything as one worker with one set of credentials
+### 9. Column identifiers are interpolated into the bulk INSERT
+
+`load_to_db_final.py` builds `INSERT INTO users ({', '.join(df.columns)})` with an f-string. The
+column names come from the cleaned CSV, whose header the pipeline itself writes from the
+contract-defined schema — not from user input — so there is no reachable injection path without
+already holding write access to the container's filesystem, at which point the process is lost
+anyway.
+
+`psycopg2.sql.Identifier` would close it structurally, and is the right change in a codebase under
+active development. It is not applied here because this pipeline is deployed and working, and a
+change to generated SQL is not worth a theoretical gain.
+
+### 10. Airflow runs everything as one worker with one set of credentials
 
 There is no multi-tenancy, no per-DAG credential isolation, and no RBAC beyond the single admin user.
 Anyone who can trigger the DAG can reach everything the DAG can reach.
@@ -196,6 +213,6 @@ Before this repository is made public, or after any change to the infrastructure
 - [ ] No real AWS account id, bucket name or ARN appears in a committed screenshot or code block
 - [ ] `terraform.tfvars` and `backend.hcl` exist only as `.example`
 - [ ] The OIDC trust policy still uses `StringEquals` on the three named subjects — never `:*`
-- [ ] Every published port in `docker-compose.yml` is still prefixed `127.0.0.1:`
-- [ ] `AIRFLOW__WEBSERVER__EXPOSE_CONFIG` is `False`
+- [ ] If this will run anywhere but a single-user laptop: ports prefixed `127.0.0.1:`,
+      `AIRFLOW__WEBSERVER__EXPOSE_CONFIG` set to `'False'` (see limitations 6 and 9)
 - [ ] The placeholder passwords in `.env.example` are still placeholders

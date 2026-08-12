@@ -62,13 +62,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `StringLike repo:<repo>:*` to `StringEquals` on exactly three subjects — `pull_request`,
   `ref:refs/heads/<default>` and `environment:production`. A workflow dispatched from a feature
   branch is now refused by AWS. New variable: `github_default_branch` (default `main`).
-- **Every published container port is bound to `127.0.0.1`.** The local stack (Postgres, Redis,
-  Airflow, pgAdmin, Spark, Prometheus, Grafana, statsd-exporter) is no longer reachable from the LAN.
-- **`AIRFLOW__WEBSERVER__EXPOSE_CONFIG` set to `False`** — the Config view rendered `airflow.cfg`
-  including the metadata-DB connection string.
-- **Column identifiers in the bulk `INSERT` are composed with `psycopg2.sql.Identifier`** instead of
-  being interpolated into the statement, so a tampered intermediate CSV header cannot reach the SQL
-  text. `CREATE DATABASE` already did this.
+- **Three local-stack changes were made and then reverted**, deliberately: binding every published
+  port to `127.0.0.1`, turning off the Airflow Config view, and composing the bulk `INSERT`'s column
+  identifiers with `psycopg2.sql.Identifier`. This pipeline is deployed and working; each of those
+  altered its runtime behaviour in exchange for a gain that is theoretical on a single-user laptop
+  stack. They are documented as limitations 6 and 9 in `SECURITY.md`, with exactly what to change
+  before running it anywhere shared — a written trade-off rather than a silent one.
 
 ## [0.1.0] - 2026-05-31
 

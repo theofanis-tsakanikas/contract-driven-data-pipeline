@@ -97,16 +97,13 @@ def load_to_database(connect=None) -> None:
         cur.execute(create_table_query) # Create the users table if it doesn't exist
         conn.commit() # Commit the table creation
 
-        # Insert data using execute_values for efficient bulk insert.
-        #
-        # The column names are composed with psycopg2.sql.Identifier rather than
-        # interpolated into the statement. They originate from the pipeline's own
-        # contract-defined schema, not from user input — but a tampered intermediate
-        # CSV must not be able to reach the SQL text. execute_values renders the
-        # Composable against the live connection (psycopg2 >= 2.8).
-        insert_query = sql.SQL(
-            "INSERT INTO users ({cols}) VALUES %s ON CONFLICT (user_id) DO NOTHING;"
-        ).format(cols=sql.SQL(", ").join(map(sql.Identifier, df.columns)))
+        # Insert data using execute_values for efficient bulk insert. The column
+        # names are interpolated, not composed: they come from the pipeline's own
+        # contract-defined schema, never from user input. See SECURITY.md.
+        insert_query = f"""
+        INSERT INTO users ({', '.join(df.columns)}) VALUES %s
+        ON CONFLICT (user_id) DO NOTHING;
+        """
         data = [tuple(row) for row in df.to_numpy()]
         execute_values(cur, insert_query, data)
         inserted = cur.rowcount  # actual inserts, excluding ON CONFLICT skips

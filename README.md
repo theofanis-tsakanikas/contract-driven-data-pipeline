@@ -272,8 +272,10 @@ it is never created by hand.
   `pull_request`, `ref:refs/heads/main` and `environment:production` — rather than the usual
   `repo:<repo>:*`, so a workflow on a feature branch is refused by AWS, not merely by convention.
 - **Secret scanning.** `gitleaks` runs on every push and pull request, over the **full git history**.
-- **Loopback only.** Every published port in `docker-compose.yml` is bound to `127.0.0.1`, so the
-  local stack is not reachable from the network even on an untrusted one.
+- **Local-stack caveat, stated rather than hidden.** The Docker services publish on all interfaces
+  and several read placeholder credentials from `.env`. That is a deliberate developer-ergonomics
+  choice for a single-user stack — [SECURITY.md](SECURITY.md#6-local-services-are-unauthenticated-or-use-placeholder-credentials)
+  says what it costs and what to change before running it anywhere shared.
 
 Access keys for local runs come from `terraform output pipeline_access_key_id` /
 `pipeline_secret_access_key` and live only in the gitignored `.env`.
@@ -395,7 +397,7 @@ a CSV fixture into a real `postgres:16` service container and asserts the row co
 - **The marts are minimal.** Two aggregate tables over one staging view. This demonstrates the
   contract and the lineage, not analytics-engineering depth.
 - **The pipeline authenticates with a long-lived IAM access key**, and no image or dependency
-  vulnerability scanning runs in CI. These and six more are stated in full, each with the control a
+  vulnerability scanning runs in CI. These and eight more are stated in full, each with the control a
   deployment would use instead, in [SECURITY.md](SECURITY.md#known-limitations).
 
 ---
@@ -456,7 +458,7 @@ Engineering reference — service ports, connections-as-code, known failure mode
 
 ## Security
 
-The hardened controls, the eight known limitations and what a real deployment would do instead:
+The hardened controls, the ten known limitations and what a real deployment would do instead:
 [SECURITY.md](SECURITY.md). The short version — two IAM identities that are never interchanged, no
 long-lived AWS key in CI, gitleaks over the full history, every local port bound to loopback, and an
 honest statement that the MD5 key is pseudonymisation rather than anonymisation.
