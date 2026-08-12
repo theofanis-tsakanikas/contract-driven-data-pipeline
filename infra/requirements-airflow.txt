@@ -9,7 +9,7 @@ psycopg2-binary==2.9.9
 
 # --- Data Generation & Processing ---
 faker==24.0.0
-pandas==2.1.4
+pandas==3.0.5
 pyspark==3.5.2
 pyarrow==16.0.0
 
