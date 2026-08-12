@@ -2,7 +2,7 @@
 # Light and self-contained: demo mode needs no Airflow/Spark/S3/Postgres.
 
 streamlit>=1.40
-pandas>=2.0
+pandas>=3.0.5
 plotly>=5.20
 
 # Optional — only needed for "Postgres (live)" mode:
