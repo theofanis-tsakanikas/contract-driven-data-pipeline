@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/dbt-1.8-FF694B?logo=dbt&logoColor=white" alt="dbt 1.8">
   <img src="https://img.shields.io/badge/AWS-S3%20·%20Glue%20·%20Athena-FF9900?logo=amazonwebservices&logoColor=white" alt="AWS S3 / Glue / Athena">
   <br>
-  <img src="https://img.shields.io/badge/tests-54%20passing-2ea44f" alt="54 tests passing">
+  <img src="https://img.shields.io/badge/tests-63%20passing-2ea44f" alt="63 tests passing">
   <img src="https://img.shields.io/badge/contract%20rules-6%20·%20CI--enforced-2ea44f" alt="6 contract rules, CI-enforced">
   <img src="https://img.shields.io/badge/CI%20gates-lint%20·%20test%20·%20smoke%20·%20DAG-2ea44f" alt="4 CI gates">
 </p>
@@ -331,7 +331,7 @@ after `make crawler`.
 
 ## Testing
 
-**54 tests** covering the pure logic: the contract's rules and PII classification, `clean_dataframe()`
+**63 tests** covering the pure logic: the contract's rules and PII classification, `clean_dataframe()`
 (what is accepted), `rejected_dataframe()` (that every rejected row carries the first rule it
 violated), `data_quality_report()`, the generator, the loader's edge cases, and DAG integrity.
 
@@ -340,7 +340,14 @@ make test        # pytest — PySpark transform, contract, loader, generator (ne
 make lint        # ruff + the data-dictionary drift check
 ```
 
-47 of them run from a plain checkout; the 7 **DAG-integrity** tests need Airflow installed and run in
+Nine of them guard the **dependency pins** rather than the code
+([`tests/test_dependency_pins.py`](tests/test_dependency_pins.py)): that the Airflow version in the
+Dockerfile is the one CI actually validates against, and that packages pinned in both images carry
+the same version. Those invariants used to live only in a comment, and automated dependency PRs
+walked straight through them — including a base-image bump from Airflow 2.11 to 3.3 that passed all
+five checks. Each guard was verified by breaking it on purpose and confirming it refuses.
+
+56 of them run from a plain checkout; the 7 **DAG-integrity** tests need Airflow installed and run in
 their own CI job. The suite starts a local `SparkSession` — it needs **no** running containers, no
 Kafka, no AWS credentials, and never touches the cloud.
 
@@ -364,7 +371,7 @@ a CSV fixture into a real `postgres:16` service container and asserts the row co
 | [`infra/`](infra/) | `docker-compose.yml`, arch-aware Airflow/Spark images, `observability/` (Prometheus + provisioned Grafana) |
 | [`infra/terraform/`](infra/terraform/) | IaC — bucket + lifecycle, least-privilege IAM, Glue, Athena; `bootstrap/` = state + OIDC role |
 | [`app/`](app/) | Streamlit marts BI dashboard (live PostgreSQL or self-contained demo) |
-| [`tests/`](tests/) | 54 pytest tests — transform, contract, loader, generator, DAG integrity |
+| [`tests/`](tests/) | 63 pytest tests — transform, contract, loader, generator, DAG integrity, dependency pins |
 | [`.github/`](.github/) | `workflows/ci.yml` (4 gates) · `workflows/terraform.yml` (plan on PR, manual OIDC apply) · `workflows/gitleaks.yml` · `dependabot.yml` |
 | `data/`, `logs/` | Runtime mounts — gitignored |
 
