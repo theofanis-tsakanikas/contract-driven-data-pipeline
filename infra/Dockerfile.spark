@@ -1,5 +1,5 @@
 # 1. Base Image: Use official Python 3.12 Slim for consistency with Airflow
-FROM python:3.12.3-slim-bookworm
+FROM python:3.14.0-slim-bookworm
 
 # 2. Define Environment Variables and Versions
 ENV SPARK_VERSION=3.5.2
