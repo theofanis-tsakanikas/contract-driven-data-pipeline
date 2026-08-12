@@ -49,11 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comments: the Airflow version in `Dockerfile.airflow` must equal the one `dag-validate` installs
   and the constraints file it resolves against, and packages pinned in both images must carry the
   same version. Each was verified by breaking it on purpose and confirming it refuses.
-- **Dependabot narrowed to GitHub Actions only.** Enabling pip, Docker and Terraform version updates
+- **Dependabot version updates switched off (`open-pull-requests-limit: 0`), matching the rest of the
+  portfolio.** Enabling pip, Docker and Terraform version updates
   produced seventeen pull requests in minutes — pandas 2→3, numpy 1→2, both Airflow providers across
   majors, and the base image from Airflow 2.11 to 3.3 — and every one passed all five checks, because
   nothing built the images. Dependabot **security** updates remain enabled, so a real CVE still opens
-  a PR.
+  a PR — that is the part worth keeping.
 
 ### Security
 
