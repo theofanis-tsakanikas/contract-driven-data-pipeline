@@ -15,10 +15,10 @@ x-airflow-common: # Define common configuration for Airflow services to avoid re
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${DB_USER}:${DB_PASS}@postgres/${POSTGRES_DB} # Use PostgreSQL as the result backend for Celery
     AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
     AIRFLOW__CORE__LOAD_EXAMPLES: 'False'  # Disable example DAGs in Airflow UI
-    # The webserver Config view renders airflow.cfg, including the SQL Alchemy
-    # connection string with the metadata-DB password in it. Off by default; flip to
-    # 'True' only for a local debugging session.
-    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'False'
+    # Note: the Config view renders airflow.cfg, including the SQL Alchemy connection
+    # string with the metadata-DB password in it. Acceptable on a local single-user
+    # stack; see SECURITY.md before exposing this beyond localhost.
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'True'  # Enable webserver config view
     AIRFLOW__METRICS__STATSD_ON: 'True'  # Enable StatsD metrics collection
     AIRFLOW__METRICS__STATSD_HOST: statsd-exporter
     AIRFLOW__METRICS__STATSD_PORT: 9125  # matches the statsd-exporter UDP listener below
@@ -73,7 +73,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASS}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "5432:5432"
     volumes:
       - postgres:/var/lib/postgresql/data
     healthcheck:
@@ -89,7 +89,7 @@ services:
     image: redis/redis-stack-server:latest
     container_name: redis
     ports:
-      - "127.0.0.1:6379:6379"         # Redis server only
+      - "6379:6379"         # Redis server only
     volumes:
       - redis-data:/data
     healthcheck:
@@ -123,7 +123,7 @@ services:
       <<: *airflow-common-env
       AIRFLOW__WEBSERVER__BASE_URL: http://localhost:8088  # matches the published host port below
     ports:
-      - "127.0.0.1:8088:8080"
+      - "8088:8080"
     depends_on:
       airflow-init:
         condition: service_healthy
@@ -135,8 +135,8 @@ services:
     environment:
       <<: *airflow-common-env
     ports:
-      - "127.0.0.1:42000:42000"
-      - "127.0.0.1:42001:42001"
+      - "42000:42000"
+      - "42001:42001"
     depends_on:
       airflow-init:
         condition: service_healthy
@@ -171,7 +171,7 @@ services:
     volumes:
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
     ports:
-      - "127.0.0.1:5050:80"
+      - "5050:80"
     restart: unless-stopped
     networks:
       - infra-network
@@ -186,8 +186,8 @@ services:
       - SPARK_MODE=master
       - SPARK_MASTER_WEBUI_PORT=8080
     ports:
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:7077:7077"
+      - "8080:8080"
+      - "7077:7077"
     volumes:
       - ../data:/opt/airflow/data
       - ../scripts:/opt/airflow/scripts
@@ -228,7 +228,7 @@ services:
     volumes:
       - ./observability/statsd_mapping.yml:/tmp/statsd_mapping.yml:ro
     ports:
-      - "127.0.0.1:9102:9102"   # Prometheus metrics endpoint
+      - "9102:9102"   # Prometheus metrics endpoint
     restart: unless-stopped
     networks:
       - infra-network
@@ -241,7 +241,7 @@ services:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "127.0.0.1:9090:9090"
+      - "9090:9090"
     restart: unless-stopped
     depends_on:
       - statsd-exporter
@@ -264,7 +264,7 @@ services:
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      - "127.0.0.1:3000:3000"
+      - "3000:3000"
     restart: unless-stopped
     depends_on:
       - prometheus

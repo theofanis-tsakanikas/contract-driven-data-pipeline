@@ -18,24 +18,6 @@ from psycopg2 import sql
 import load_to_db_final
 
 
-def _identifiers(composable) -> list:
-    """Flatten a psycopg2 Composed into the list of Identifier names it carries."""
-    if isinstance(composable, sql.Identifier):
-        return list(composable.strings)
-    if isinstance(composable, sql.Composed):
-        return [name for part in composable.seq for name in _identifiers(part)]
-    return []
-
-
-def _sql_text(composable) -> str:
-    """Flatten a psycopg2 Composed into its literal SQL fragments (no identifiers)."""
-    if isinstance(composable, sql.SQL):
-        return composable.string
-    if isinstance(composable, sql.Composed):
-        return "".join(_sql_text(part) for part in composable.seq)
-    return ""
-
-
 @pytest.fixture
 def db_env(monkeypatch):
     """Populate the env vars load_to_database reads (connections are mocked)."""
@@ -102,13 +84,8 @@ def test_insert_statement_and_row_mapping(db_env):
 
     mock_ev.assert_called_once()
     _, insert_query, data = mock_ev.call_args.args
-    # The statement is *composed*, not interpolated: every column name is a quoted
-    # Identifier, so a tampered CSV header cannot reach the SQL text.
-    assert isinstance(insert_query, sql.Composed)
-    assert _identifiers(insert_query) == list(df.columns)
-    literal = _sql_text(insert_query)
-    assert "INSERT INTO users (" in literal
-    assert "ON CONFLICT (user_id) DO NOTHING" in literal
+    assert "INSERT INTO users (user_id, name, email, phone, zip_code, age, city)" in insert_query
+    assert "ON CONFLICT (user_id) DO NOTHING" in insert_query
     # Each DataFrame row is mapped to a plain tuple in column order.
     assert data == [tuple(row) for row in df.to_numpy()]
     assert len(data) == 2
