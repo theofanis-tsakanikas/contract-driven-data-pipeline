@@ -404,20 +404,30 @@ a CSV fixture into a real `postgres:16` service container and asserts the row co
 
 ## Cost
 
-**Effectively under $1/month at demo scale, and $0 when torn down.** The whole local stack — Airflow,
-Spark, PostgreSQL, Prometheus, Grafana, pgAdmin — runs in Docker on your machine and costs nothing.
+**Nothing is standing today.** The AWS side is provisioned on demand and destroyed; the local stack
+runs in Docker. What follows is what it would cost *while it stands* — list-price estimates for
+`eu-central-1`, not a measured bill.
 
-The AWS footprint is deliberately small and has no always-on compute:
+| Resource | Spec | Rate | Monthly |
+|---|---|---|---:|
+| S3 — data lake | ~10 MB across `raw/` + `rejects/` + `quality/`, versioned, 30-day raw expiry | $0.023/GB-mo | < $0.01 |
+| S3 — Athena results | ~1 MB, short lifecycle | $0.023/GB-mo | < $0.01 |
+| Glue Data Catalog | 1 database, a handful of tables | free ≤ 1M objects | $0.00 |
+| Glue crawler | on demand (`make crawler`), ~10 runs/mo × 10-min minimum, 2 DPU | $0.44/DPU-hr | ~$1.47 |
+| Athena | ~50 queries/mo over a few MB | $5.00/TB scanned | < $0.01 |
+| IAM user + role, Athena workgroup | — | free | $0.00 |
+| **Total** | | | **≈ $1.50 / month** |
 
-| Resource | What drives the cost |
-|---|---|
-| S3 data lake | A few MB per run across `raw/` + `rejects/` + `quality/`; the raw zone expires after 30 days by lifecycle rule |
-| Glue crawler | On demand only (`make crawler`), billed per DPU-hour with a 10-minute minimum |
-| Athena | Per TB scanned — fractions of a cent at this data size; query results expire on their own lifecycle rule |
-| IAM user / role, Athena workgroup | Free |
+**The local stack is free** — Airflow, Spark, PostgreSQL, Prometheus, Grafana and pgAdmin all run in
+Docker on your machine.
 
-`terraform destroy` in [`infra/terraform/`](infra/terraform/) returns it to zero; the bootstrap layer
-(state bucket, lock table, OIDC role) is intentionally kept.
+The Glue crawler is the only line that is not a rounding error, and it runs only when you ask it to.
+Skip it and this project costs **cents**. `terraform destroy` in [`infra/terraform/`](infra/terraform/)
+returns it to zero; the bootstrap layer (state bucket, lock table, OIDC role) is a few cents and is
+kept deliberately.
+
+*Rates are list prices and change — see [the portfolio cost model](https://github.com/theofanis-tsakanikas)
+for the shared assumptions. Verify before quoting.*
 
 ---
 
