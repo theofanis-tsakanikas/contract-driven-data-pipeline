@@ -3,7 +3,7 @@
 
 streamlit>=1.40
 pandas>=2.0
-plotly>=5.20
+plotly>=6.9.0
 
 # Optional — only needed for "Postgres (live)" mode:
 psycopg2-binary>=2.9
