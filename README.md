@@ -249,8 +249,13 @@ flowchart LR
     TF --> BUCKET & IAM & GLUE & ATHENA
 ```
 
-Every PR touching `infra/terraform/**` gets a read-only `plan`; the real `apply` is a manual
-*Run workflow* button gated by the `production` environment's approval.
+Every PR touching `infra/terraform/**` is checked **offline** — `terraform fmt -check` plus
+`init -backend=false` and `validate`, with no credentials and no backend — and then gets a read-only
+`plan` **when the estate is up**. When it is torn down (its normal resting state) the plan step
+reports the unset variables with a `::notice::` and the job stays green, because a permanently red
+check is a check nobody reads. The `apply` is a manual *Run workflow* button gated by the
+`production` environment's approval, and it **refuses to run** with those variables unset rather than
+skipping quietly.
 
 ## Security and IAM
 

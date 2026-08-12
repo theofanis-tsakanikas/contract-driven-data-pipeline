@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `What this does not do`, `Cost`, `Decisions`, `Docs`, `Security` and `License` sections; the inline
   `.env` block was replaced by a link to `.env.example`.
 
+- **The Terraform workflow no longer fails when the estate is torn down.** `terraform fmt -check`,
+  `init -backend=false` and `validate` now run **offline** on every PR — real signal with no
+  credentials. The cloud `plan` is gated on the five deploy variables being set; when they are not,
+  the step emits a `::notice::` naming the missing ones and the job stays green. The `apply` job does
+  the opposite and **fails loudly** on the same condition, because an apply with nothing to apply to
+  is a mistake rather than a no-op.
+
 ### Security
 
 - **OIDC trust policy tightened.** The deployer role's `sub` condition moved from
