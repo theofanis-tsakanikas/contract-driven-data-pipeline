@@ -15,6 +15,12 @@ variable "github_repository" {
   type        = string
 }
 
+variable "create_oidc_provider" {
+  description = "Create the GitHub OIDC provider (true) or reference one another project already created (false). It is an account-level singleton: AWS allows exactly one per account, so set this to false if `aws iam list-open-id-connect-providers` already lists token.actions.githubusercontent.com."
+  type        = bool
+  default     = true
+}
+
 variable "github_default_branch" {
   description = "Branch a manual \"plan\" dispatch is allowed to run from (the apply dispatch is scoped to the production environment instead)."
   type        = string

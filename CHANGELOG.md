@@ -32,6 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the opposite and **fails loudly** on the same condition, because an apply with nothing to apply to
   is a mistake rather than a no-op.
 
+- **The bootstrap no longer assumes it owns the account's GitHub OIDC provider.** It is an
+  account-level singleton shared by every repository that federates into the account, and this
+  repository's `bootstrap` declared it as a resource — so the next apply would have failed with
+  `EntityAlreadyExists`, and an apply-then-destroy would have deleted a provider another project
+  depends on. New variable `create_oidc_provider` (default `true`); set it to `false` to reference
+  an existing provider instead. Verified with a `plan` against the live account: 9 resources to add,
+  no provider among them. New output `oidc_provider_owned_here` records which side of that line the
+  state is on.
+
 ### Security
 
 - **OIDC trust policy tightened.** The deployer role's `sub` condition moved from

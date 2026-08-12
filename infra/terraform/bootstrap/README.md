@@ -44,6 +44,24 @@ manual **Run workflow** button.
 
 ## Notes
 
+- **Check for an existing GitHub OIDC provider before the first apply.** It is an
+  account-level singleton — one per AWS account, shared by every repository that
+  federates into it, and AWS refuses a second with `EntityAlreadyExists`:
+
+  ```bash
+  aws iam list-open-id-connect-providers
+  ```
+
+  If `token.actions.githubusercontent.com` is already there, set
+  `create_oidc_provider = false` in `terraform.tfvars`. This bootstrap then
+  *references* it rather than owning it — which matters most at teardown: owning a
+  provider you did not create means `terraform destroy` here deletes it and silently
+  breaks the OIDC federation of every other repository in the account. The
+  `oidc_provider_owned_here` output records which side of that line this state is on.
+- The deployer role's trust policy names three subjects exactly (`pull_request`,
+  `ref:refs/heads/<github_default_branch>`, `environment:production`). A workflow
+  dispatched from a feature branch is refused by AWS — dispatch from the default
+  branch, or open a pull request.
 - The state bucket has `prevent_destroy` — `terraform destroy` here will refuse to
   delete it. Remove that lifecycle block deliberately if you really mean to.
 - Keep the local `bootstrap/terraform.tfstate` safe (it's gitignored). It only

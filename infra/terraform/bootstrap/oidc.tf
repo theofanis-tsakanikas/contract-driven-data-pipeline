@@ -9,12 +9,34 @@
 
 data "aws_caller_identity" "current" {}
 
+# The GitHub OIDC provider is an **account-level singleton**: one per AWS account,
+# shared by every repository that federates into it. AWS refuses a second one with
+# `EntityAlreadyExists`.
+#
+# So this bootstrap can either OWN it (a virgin account — `create_oidc_provider =
+# true`, the default) or REFERENCE one another project already created
+# (`create_oidc_provider = false`). Owning a provider you did not create is the
+# dangerous case: `terraform destroy` here would delete it and silently break the
+# federation of every other repository in the account.
 resource "aws_iam_openid_connect_provider" "github" {
+  count = var.create_oidc_provider ? 1 : 0
+
   url            = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
   # GitHub's OIDC thumbprint. AWS no longer verifies it for this provider, but the
   # argument is still accepted; kept for completeness.
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+}
+
+data "aws_iam_openid_connect_provider" "github" {
+  count = var.create_oidc_provider ? 0 : 1
+
+  url = "https://token.actions.githubusercontent.com"
+}
+
+locals {
+  # Exactly one of the two above exists; this resolves whichever it is.
+  github_oidc_provider_arn = var.create_oidc_provider ? one(aws_iam_openid_connect_provider.github[*].arn) : one(data.aws_iam_openid_connect_provider.github[*].arn)
 }
 
 # --- Trust policy: only this repo's workflows may assume the role ---
@@ -26,7 +48,7 @@ data "aws_iam_policy_document" "deployer_assume" {
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      identifiers = [local.github_oidc_provider_arn]
     }
 
     condition {

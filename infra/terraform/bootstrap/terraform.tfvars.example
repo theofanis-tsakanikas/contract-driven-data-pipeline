@@ -4,6 +4,18 @@ aws_region        = "eu-central-1"
 github_repository = "theofanis-tsakanikas/contract-driven-data-pipeline"
 state_bucket_name = "your-globally-unique-tfstate-bucket"
 
+# The GitHub OIDC provider is an ACCOUNT-LEVEL SINGLETON — AWS allows exactly one
+# per account, shared by every repo that federates into it. Check first:
+#
+#   aws iam list-open-id-connect-providers
+#
+# If token.actions.githubusercontent.com is already listed (another project created
+# it), set this to false: this bootstrap then REFERENCES it instead of owning it, so
+# a destroy here cannot delete it and break the other repositories.
+# Leave it true only in an account that has none.
+# create_oidc_provider = false
+
 # Optional overrides (defaults shown):
-# project_name    = "s3-spark-pg-etl"
-# lock_table_name = "s3-spark-pg-etl-tf-lock"
+# project_name          = "s3-spark-pg-etl"
+# lock_table_name       = "s3-spark-pg-etl-tf-lock"
+# github_default_branch = "main"
