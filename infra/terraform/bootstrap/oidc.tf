@@ -35,12 +35,24 @@ data "aws_iam_policy_document" "deployer_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Limit to this repository (any branch / PR / environment). Tighten to a
-    # specific environment with e.g. "repo:${var.github_repository}:environment:production".
+    # Scoped to the three subjects this repository's Terraform workflow actually
+    # presents — NOT "repo:<repo>:*", which would let a workflow on any branch or
+    # any fork-less PR head assume the deployer role:
+    #
+    #   pull_request               → the read-only `plan` job on a PR
+    #   ref:refs/heads/<default>   → a manual "plan" dispatch, from the default branch only
+    #   environment:production     → the `apply` job, behind the environment's approval gate
+    #
+    # Consequence, by design: a manual dispatch from a feature branch is refused.
+    # Dispatch from ${var.github_default_branch}, or open a PR.
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:*"]
+      values = [
+        "repo:${var.github_repository}:pull_request",
+        "repo:${var.github_repository}:ref:refs/heads/${var.github_default_branch}",
+        "repo:${var.github_repository}:environment:production",
+      ]
     }
   }
 }

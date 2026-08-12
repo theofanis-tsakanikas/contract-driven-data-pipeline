@@ -15,6 +15,12 @@ variable "github_repository" {
   type        = string
 }
 
+variable "github_default_branch" {
+  description = "Branch a manual \"plan\" dispatch is allowed to run from (the apply dispatch is scoped to the production environment instead)."
+  type        = string
+  default     = "main"
+}
+
 variable "state_bucket_name" {
   description = "Globally-unique name for the Terraform remote-state bucket."
   type        = string
