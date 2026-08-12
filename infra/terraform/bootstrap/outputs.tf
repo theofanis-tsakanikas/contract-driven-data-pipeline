@@ -14,6 +14,11 @@ output "deployer_role_arn" {
 }
 
 output "oidc_provider_arn" {
-  description = "The GitHub OIDC provider ARN (for reference)."
-  value       = aws_iam_openid_connect_provider.github.arn
+  description = "The GitHub OIDC provider ARN (for reference) — created here, or the pre-existing one when create_oidc_provider = false."
+  value       = local.github_oidc_provider_arn
+}
+
+output "oidc_provider_owned_here" {
+  description = "Whether this state owns the account-level OIDC provider. When false, a destroy here leaves it standing for the other repositories that federate through it."
+  value       = var.create_oidc_provider
 }
