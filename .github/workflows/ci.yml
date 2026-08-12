@@ -35,10 +35,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install test dependencies
-        # faker: the generator anomaly-injection tests. psycopg2-binary: the loader
-        # module imports psycopg2 at module level (the tests mock the *calls*, but
-        # the import must still resolve to collect the module).
-        run: pip install pyspark==3.5.2 pandas==2.1.4 boto3==1.42.73 faker==24.0.0 psycopg2-binary==2.9.9 pytest
+        # From requirements-dev.txt, which pulls in infra/requirements-spark.txt —
+        # so the tests run against the versions the image actually ships. This list
+        # used to be written inline here, which meant a dependency bump changed the
+        # image while CI kept testing the old pins and the PR still went green.
+        run: pip install -r requirements-dev.txt
       - name: Run PySpark transformation tests
         # local[1] + low driver memory keeps Spark within the GitHub runner (~7GB).
         env:

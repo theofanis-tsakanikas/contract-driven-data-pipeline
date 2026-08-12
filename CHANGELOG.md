@@ -41,6 +41,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no provider among them. New output `oidc_provider_owned_here` records which side of that line the
   state is on.
 
+- **CI now tests the versions the images actually ship.** The `test` job installed its dependencies
+  from a list written inline in `ci.yml`, so a bump to `infra/requirements-*.txt` changed the image
+  while the tests kept running the old pins. It now installs `-r requirements-dev.txt`, which pulls
+  in `infra/requirements-spark.txt`.
+- **`tests/test_dependency_pins.py`** — nine guards on the invariants that previously lived only in
+  comments: the Airflow version in `Dockerfile.airflow` must equal the one `dag-validate` installs
+  and the constraints file it resolves against, and packages pinned in both images must carry the
+  same version. Each was verified by breaking it on purpose and confirming it refuses.
+- **Dependabot narrowed to GitHub Actions only.** Enabling pip, Docker and Terraform version updates
+  produced seventeen pull requests in minutes — pandas 2→3, numpy 1→2, both Airflow providers across
+  majors, and the base image from Airflow 2.11 to 3.3 — and every one passed all five checks, because
+  nothing built the images. Dependabot **security** updates remain enabled, so a real CVE still opens
+  a PR.
+
 ### Security
 
 - **OIDC trust policy tightened.** The deployer role's `sub` condition moved from

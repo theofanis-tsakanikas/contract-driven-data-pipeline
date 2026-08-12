@@ -1,43 +1,31 @@
-# Dependency updates. The pinned requirements files are the point of this repo's
-# reproducibility, so bumps arrive as PRs that must pass the four CI gates
-# (lint · test · smoke · dag-validate) before they are merged — never silently.
+# GitHub Actions only — deliberately.
+#
+# Dependabot **security** updates stay enabled in the repository settings, so a real
+# CVE still opens a pull request. What is switched off here is routine *version*
+# updates for pip, Docker and Terraform, and the reason is specific to this project:
+# its dependency set is a deliberately pinned, working combination (Airflow 2.11 ·
+# Spark 3.5.2 · pandas 2.1.4 · numpy 1.26.4), and several pins must move together or
+# not at all.
+#
+# Enabling them produced seventeen pull requests in minutes — pandas 2→3, numpy 1→2,
+# both Airflow providers across major versions, and the base image from Airflow 2.11
+# to 3.3 — and every one of them passed all five checks, because no job builds the
+# images. Green ticks on untested upgrades are worse than no ticks at all.
+#
+# tests/test_dependency_pins.py now enforces the invariants those PRs would have
+# broken, so a deliberate, hand-driven upgrade is checked. Turning pip back on would
+# additionally need a job that builds both Dockerfiles.
 version: 2
 
 updates:
-  - package-ecosystem: pip
-    directory: "/infra"          # requirements-airflow.txt + requirements-spark.txt
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    labels: ["dependencies"]
-    groups:
-      python-minor-and-patch:
-        update-types: ["minor", "patch"]
-
-  - package-ecosystem: pip
-    directory: "/app"            # Streamlit dashboard (pinned, deployed standalone)
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    labels: ["dependencies"]
-    groups:
-      python-minor-and-patch:
-        update-types: ["minor", "patch"]
-
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
-    labels: ["dependencies", "ci"]
-
-  - package-ecosystem: docker
-    directory: "/infra"          # Dockerfile.airflow + Dockerfile.spark base images
-    schedule:
-      interval: weekly
-    labels: ["dependencies"]
-
-  - package-ecosystem: terraform
-    directory: "/infra/terraform"
-    schedule:
       interval: monthly
-    labels: ["dependencies", "infra"]
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "ci"]
+    groups:
+      # One pull request for everything, majors included: action majors are usually
+      # runner/Node bumps that either work or fail loudly in the same run.
+      actions:
+        patterns: ["*"]

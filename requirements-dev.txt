@@ -1,0 +1,15 @@
+# Test dependencies.
+#
+# The point of this file is that CI installs the SAME pins the Spark image ships,
+# rather than a hand-written list that drifts from it. Before this existed, the
+# `test` job pip-installed its versions inline in ci.yml — so a dependency bump
+# changed the image and the tests kept running the old versions, and the pull
+# request went green without ever exercising the change.
+-r infra/requirements-spark.txt
+
+# Faker belongs to the Airflow image (the ingestion stage generates the dirty
+# rows), but the generator's unit tests need it here too. tests/test_dependency_pins.py
+# asserts this pin still matches infra/requirements-airflow.txt.
+faker==24.0.0
+
+pytest
