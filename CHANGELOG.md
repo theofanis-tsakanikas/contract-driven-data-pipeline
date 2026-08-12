@@ -7,7 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **`SECURITY.md`** — scope, vulnerability reporting, the hardened controls, and eight known
+  limitations, each stated with the control a real deployment would use instead. Includes a
+  pre-publish checklist.
+- **`docs/adr/`** — seven Architecture Decision Records (contract as single source of truth,
+  quarantine over silent drop, MD5 surrogate key, Terraform-owned bucket, control/data-plane
+  separation, in-process Spark, isolated dbt venv), each recording what was rejected and why.
+- **`.github/dependabot.yml`** — weekly grouped update PRs for pip (infra + app), GitHub Actions and
+  Docker base images; monthly for the Terraform providers.
+
+### Changed
+
+- **README rewritten to the portfolio README standard** — the results gallery was dissolved and every
+  screenshot moved beside the claim it proves (no image removed); added `Status`, `Testing`,
+  `What this does not do`, `Cost`, `Decisions`, `Docs`, `Security` and `License` sections; the inline
+  `.env` block was replaced by a link to `.env.example`.
+
+### Security
+
+- **OIDC trust policy tightened.** The deployer role's `sub` condition moved from
+  `StringLike repo:<repo>:*` to `StringEquals` on exactly three subjects — `pull_request`,
+  `ref:refs/heads/<default>` and `environment:production`. A workflow dispatched from a feature
+  branch is now refused by AWS. New variable: `github_default_branch` (default `main`).
+- **Every published container port is bound to `127.0.0.1`.** The local stack (Postgres, Redis,
+  Airflow, pgAdmin, Spark, Prometheus, Grafana, statsd-exporter) is no longer reachable from the LAN.
+- **`AIRFLOW__WEBSERVER__EXPOSE_CONFIG` set to `False`** — the Config view rendered `airflow.cfg`
+  including the metadata-DB connection string.
+- **Column identifiers in the bulk `INSERT` are composed with `psycopg2.sql.Identifier`** instead of
+  being interpolated into the statement, so a tampered intermediate CSV header cannot reach the SQL
+  text. `CREATE DATABASE` already did this.
 
 ## [0.1.0] - 2026-05-31
 
