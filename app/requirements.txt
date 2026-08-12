@@ -1,7 +1,7 @@
 # Marts BI Dashboard — Streamlit dependencies.
 # Light and self-contained: demo mode needs no Airflow/Spark/S3/Postgres.
 
-streamlit>=1.40
+streamlit>=1.61.1
 pandas>=2.0
 plotly>=5.20
 
