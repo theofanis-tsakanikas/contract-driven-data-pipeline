@@ -1,6 +1,6 @@
 # --- Airflow Core & Providers ---
 apache-airflow-providers-apache-spark==4.8.1
-apache-airflow-providers-amazon==8.24.0
+apache-airflow-providers-amazon==9.34.0
 
 # --- Cloud & Database ---
 boto3==1.42.73
