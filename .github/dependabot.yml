@@ -1,0 +1,43 @@
+# Dependency updates. The pinned requirements files are the point of this repo's
+# reproducibility, so bumps arrive as PRs that must pass the four CI gates
+# (lint · test · smoke · dag-validate) before they are merged — never silently.
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: "/infra"          # requirements-airflow.txt + requirements-spark.txt
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    groups:
+      python-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: pip
+    directory: "/app"            # Streamlit dashboard (pinned, deployed standalone)
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    groups:
+      python-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]
+
+  - package-ecosystem: docker
+    directory: "/infra"          # Dockerfile.airflow + Dockerfile.spark base images
+    schedule:
+      interval: weekly
+    labels: ["dependencies"]
+
+  - package-ecosystem: terraform
+    directory: "/infra/terraform"
+    schedule:
+      interval: monthly
+    labels: ["dependencies", "infra"]

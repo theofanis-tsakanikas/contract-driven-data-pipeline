@@ -1,88 +1,83 @@
-# 🚀 Contract-Driven Data Pipeline
+<p align="center">
+  <img src="images/banner.png" alt="Contract-Driven Data Pipeline — Faker → S3 → PySpark → PostgreSQL → dbt" width="100%">
+</p>
 
-> An end-to-end, containerized ETL platform where a declarative **data contract** is the single source of truth — driving validation, rejection lineage, and PII classification.
-> **Faker → AWS S3 → PySpark → PostgreSQL → dbt**, orchestrated by **Airflow**, provisioned with **Terraform**, observed in **Grafana**.
+# Contract-Driven Data Pipeline
 
-![Contract-Driven Data Pipeline — architecture banner](images/banner.png)
+<p align="center">
+  <a href="https://github.com/theofanis-tsakanikas/contract-driven-data-pipeline/actions/workflows/ci.yml"><img src="https://github.com/theofanis-tsakanikas/contract-driven-data-pipeline/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/IaC-Terraform-7B42BC?logo=terraform&logoColor=white" alt="Terraform">
+  <br>
+  <img src="https://img.shields.io/badge/Apache%20Airflow-2.11-017CEE?logo=apacheairflow&logoColor=white" alt="Apache Airflow 2.11">
+  <img src="https://img.shields.io/badge/Apache%20Spark-3.5.2-E25A1C?logo=apachespark&logoColor=white" alt="Apache Spark 3.5.2">
+  <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL 16">
+  <img src="https://img.shields.io/badge/dbt-1.8-FF694B?logo=dbt&logoColor=white" alt="dbt 1.8">
+  <img src="https://img.shields.io/badge/AWS-S3%20·%20Glue%20·%20Athena-FF9900?logo=amazonwebservices&logoColor=white" alt="AWS S3 / Glue / Athena">
+  <br>
+  <img src="https://img.shields.io/badge/tests-54%20passing-2ea44f" alt="54 tests passing">
+  <img src="https://img.shields.io/badge/contract%20rules-6%20·%20CI--enforced-2ea44f" alt="6 contract rules, CI-enforced">
+  <img src="https://img.shields.io/badge/CI%20gates-lint%20·%20test%20·%20smoke%20·%20DAG-2ea44f" alt="4 CI gates">
+</p>
 
-An automated, containerized ETL (Extract, Transform, Load) pipeline orchestrated by `Apache Airflow`. The project generates mock "dirty" data, uploads it to `AWS S3`, cleans it with `PySpark` against a declarative data contract, bulk-loads it into `PostgreSQL`, and builds analytics marts with `dbt`. The AWS side is provisioned with `Terraform` (least-privilege IAM, Glue + Athena), and the pipeline is monitored in `Grafana`.
+**An ETL platform where one declared data contract is the single source of truth — it decides what is
+accepted, why a row was rejected, which fields are PII, and what the data dictionary says.**
+*Airflow · PySpark · AWS S3 · PostgreSQL · dbt · Terraform · Glue + Athena · Grafana · Streamlit*
 
-[![CI](https://github.com/theofanis-tsakanikas/contract-driven-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/theofanis-tsakanikas/contract-driven-data-pipeline/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-2.11-017CEE?logo=apacheairflow&logoColor=white)
-![Apache Spark](https://img.shields.io/badge/Apache%20Spark-3.5.2-E25A1C?logo=apachespark&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![dbt](https://img.shields.io/badge/dbt-1.8-FF694B?logo=dbt&logoColor=white)
-![Terraform](https://img.shields.io/badge/Terraform-IaC-7B42BC?logo=terraform&logoColor=white)
-![Grafana](https://img.shields.io/badge/Grafana-Observability-F46800?logo=grafana&logoColor=white)
-
----
-
-## 💡 Why This Project
-
-This is an end-to-end **data engineering** portfolio project that demonstrates a modern,
-production-minded analytics stack running entirely on a local machine via Docker. It shows:
-
-- **Pipeline orchestration** — an Airflow DAG (TaskFlow API) coordinating ingestion,
-  transformation, loading, and analytics, with retries and a clear task lineage.
-- **Distributed data processing** — PySpark schema enforcement, regex/null validation,
-  type casting, and deterministic surrogate-key generation (MD5 hashing).
-- **Cloud object storage** — programmatic S3 ingestion with boto3 and least-privilege IAM.
-- **High-performance loading** — bulk upserts into PostgreSQL with `execute_values` and
-  idempotent `ON CONFLICT` semantics.
-- **Analytics engineering** — a dbt silver/marts layer (staging view + aggregate marts)
-  with tests, isolated from Airflow's dependencies.
-- **Infrastructure as Code** — Terraform provisions the AWS side (data-lake bucket +
-  lifecycle, least-privilege pipeline IAM user, Glue crawler + Athena), with a one-time
-  bootstrap for remote state and a GitHub Actions **apply button** authenticated via OIDC
-  (no stored AWS keys).
-- **Query the lake** — Glue catalogs the S3 zones (`raw`/`rejects`/`quality`) so you can
-  run **Athena** SQL straight over the lake, including a data-quality history.
-- **Observability** — Airflow StatsD metrics flow to Prometheus and a provisioned
-  **Grafana** dashboard (run durations, task outcomes, and **data-quality** trends such
-  as accept-rate and rejections-by-reason).
-- **BI** — a **Streamlit** dashboard over the marts (live Postgres or a self-contained demo).
-- **Reproducibility & quality** — connections-as-code, a containerised stack, a `Makefile`
-  front door, unit tests for the transform, ruff linting, and a CI pipeline (lint + PySpark
-  tests + a Postgres smoke test + DAG-validate).
-
-> New here? Start with the [Data Lineage](#-data-lineage) diagram, then the
-> [Installation & Setup](#-installation--setup). For an engineering deep-dive, see
-> [CLAUDE.md](CLAUDE.md).
-
-## 📑 Table of Contents
-
-- [Why This Project](#-why-this-project)
-- [Architecture Overview](#-architecture-overview)
-  - [Data Lineage](#-data-lineage)
-- [Database Architecture: Local vs Production Mindset](#-database-architecture-local-vs-production-mindset)
-- [Security & AWS IAM Configuration](#-security--aws-iam-configuration)
-- [Project Structure](#-project-structure)
-- [Tech Stack & Prerequisites](#-tech-stack--prerequisites)
-- [Installation & Setup](#-installation--setup)
-- [ETL Pipeline Breakdown](#-etl-pipeline-breakdown)
-- [Monitoring UIs](#-monitoring-uis)
-- [Pipeline Execution & Results](#-pipeline-execution--results)
+> **On the names.** The repository is `contract-driven-data-pipeline`; the Airflow `dag_id` stays
+> `s3-to-postgres-etl` and the AWS resources keep `project_name = s3-spark-pg-etl`. Renaming those
+> would mean destroying and recreating the deployed bucket, IAM user, Glue crawler and Athena
+> workgroup — so the original identifiers were kept deliberately.
 
 ---
 
-## 🏗️ Architecture Overview
+## The problem
 
-The Airflow DAG runs five tasks in order — `run_ingestion → spark-clean-task → run_loading → run_dbt → run_dbt_test`:
+A pipeline that silently drops bad rows is worse than one that fails. The rows disappear, the counts
+never reconcile, and nobody can answer the only question that matters in an audit: *which records
+never made it into the warehouse, and why?* The usual answer is validation logic scattered across a
+Spark job, a loader, a dashboard and a wiki page — four places that disagree within a month.
 
-1. **Ingestion (Python & Boto3):** Generates synthetic dirty data with Faker (default 1000 rows, configurable via `N_DIRTY_RECORDS`) and uploads the raw CSV to AWS S3 under a date-partitioned key (`raw/dt=<ds>/dirty-data.csv`). The bucket is **provisioned by Terraform** (the pipeline only writes objects — no `s3:CreateBucket`), and the raw zone is **retained** under a lifecycle rule for an auditable history. Credentials come from the `aws_default` Airflow connection (`S3Hook`).
-2. **Transformation (PySpark & SparkSubmitOperator):** Spark pulls the raw CSV from S3 and enforces the declared [data contract](docs/governance/DATA_DICTIONARY.md). Valid rows are cleaned (MD5 pseudonymised `user_id`) and loaded; **rejected rows are quarantined with their `rejection_reason`** (lineage) and a per-run **data-quality report** (`dq_report.json`) is written, logged, **emitted to Grafana** as metrics, and uploaded back to S3 (`rejects/` + `quality/` zones).
-3. **Loading (Python & Psycopg2):** Performs an efficient bulk insert using `execute_values` into PostgreSQL with upsert logic (`ON CONFLICT DO NOTHING`), using the `postgres_default` Airflow connection.
-4. **Analytics (dbt):** `run_dbt` builds the silver/marts layer (`stg_users` → `users_by_city`, `users_by_age_band`); `run_dbt_test` runs the schema tests, so a bad load fails the DAG instead of publishing broken marts.
+Here the validation rules, the rejection reasons, the PII classification and the published data
+dictionary are all generated from **one declared contract** ([`scripts/data_contract.py`](scripts/data_contract.py)).
+Rejected rows are quarantined with the exact rule they violated, a per-run quality report is emitted
+as metrics and written back to the lake, and CI fails if the committed data dictionary drifts from
+the contract by a single byte.
 
-> **Note on Production vs Local Testing:** In a standard Cloud Production environment, Spark would read directly from S3 using s3a/s3n protocols and write directly to the database via a JDBC connector. For local testing, isolation, and cost-efficiency purposes, this pipeline downloads the data locally to clearly separate and monitor the three distinct ETL stages.
+## Status
 
-### 🧬 Data Lineage
+The full stack runs end to end from a single DAG trigger: **1,000 synthetic dirty rows** generated
+per run, uploaded to the S3 raw zone, validated against the contract in PySpark, bulk-upserted into
+PostgreSQL, and modelled by dbt into two marts — with all five tasks green and a `run_dbt_test` gate
+that fails the DAG rather than publish broken marts.
 
-End-to-end flow from raw S3, through the cleaning contract, to the dbt analytics layer
-and its **consumers** (Athena over the lake, Grafana for quality/ops, Streamlit BI).
-The dotted arrows map each Airflow task to the stage it drives.
+![Airflow Graph view — all 5 ETL tasks green/success](images/airflow-dag.png)
+
+<sub><b>One run, five tasks, all <code>success</code></b> — <code>run_ingestion → spark-clean-task → run_loading → run_dbt → run_dbt_test</code>. The last task is a gate: if the dbt schema tests fail, the DAG fails and the marts are not published.</sub>
+
+The AWS side (bucket + lifecycle, least-privilege IAM, Glue crawler, Athena workgroup) is provisioned
+by Terraform through a manual GitHub Actions button authenticated with OIDC — **no long-lived AWS
+keys are stored in CI**. The local stack runs entirely on Docker, including on Apple Silicon.
+
+---
+
+## Contents
+
+- [The problem](#the-problem) · [Status](#status) · [Architecture](#architecture)
+- [The contract at work](#the-contract-at-work) · [Data quality you can see](#data-quality-you-can-see)
+- [Analytics and BI](#analytics-and-bi) · [The data lake](#the-data-lake)
+- [Infrastructure — two planes](#infrastructure--two-planes) · [Security and IAM](#security-and-iam)
+- [Quickstart](#quickstart) · [Testing](#testing) · [Repository layout](#repository-layout)
+- [What this does not do](#what-this-does-not-do) · [Cost](#cost) · [Decisions](#decisions)
+- [Docs](#docs) · [Security](#security) · [License](#license)
+
+---
+
+## Architecture
+
+Five Airflow tasks, one contract, three consumers. The dotted arrows map each task to the stage it
+drives; the solid ones are the data.
 
 ```mermaid
 flowchart TD
@@ -101,7 +96,7 @@ flowchart TD
     M1["dbt: users_by_city"]
     M2["dbt: users_by_age_band"]
 
-    subgraph CONS["📊 Consumption"]
+    subgraph CONS["Consumption"]
         ATH["Amazon Athena<br/>SQL over the lake (Glue catalog)"]
         GRAF["Grafana<br/>ops + data-quality metrics"]
         ST["Streamlit<br/>marts BI dashboard"]
@@ -127,12 +122,107 @@ flowchart TD
     T5 -.-> STG
 ```
 
-### 🏗️ Infrastructure & Deployment (control plane)
+The contract sits at the centre of `spark-clean-task`: the accept filter, the `rejection_reason`
+values, the PII classification and [`docs/governance/DATA_DICTIONARY.md`](docs/governance/DATA_DICTIONARY.md)
+are all derived from it, so they cannot disagree.
 
-Kept **separate from the data lineage on purpose** — provisioning has a different
-lifecycle than the data flow. Terraform manages the AWS side; a one-time bootstrap
-creates the remote state + a GitHub OIDC role, and the main config is applied either
-locally or from a manual GitHub Actions button (no stored AWS keys).
+<details>
+<summary><b>Why Spark stages through the local filesystem instead of reading S3 directly</b></summary>
+
+<br>
+
+In a cloud deployment Spark would read from S3 over `s3a://` and write to the database over JDBC. This
+pipeline deliberately downloads to a local staging path between stages so the three ETL phases stay
+separately observable and cheap to run on a laptop. It is a demo trade-off, not a recommendation —
+see [What this does not do](#what-this-does-not-do).
+
+Similarly, Spark defaults to in-process `local[*]`, which is reliable on every architecture including
+arm64. The standalone `spark-master` / `spark-worker` services exist and are opt-in via `SPARK_MASTER`.
+
+</details>
+
+---
+
+## The contract at work
+
+The headline of the project: every row is validated against **six declared rules** — non-empty name
+and city, regex-validated email, Greek mobile (`69` + 8 digits), 5-digit postcode, and adult age in
+`[18, 99]`. The generator produces deliberately filthy data, so a typical run accepts only **~16–19%**
+of rows — and the other ~81% are **not lost**. Each is quarantined and tagged with the first rule it
+violated.
+
+<table>
+<tr>
+<td width="50%"><img src="images/athena-raw-dirty.png" alt="Amazon Athena querying the raw S3 zone — dirty rows (bad emails, ages like -5/150, blanks)"><br><sub><b>Before</b> — the raw zone, queried in place with Athena: leading whitespace, negative and impossible ages, malformed emails, empty fields.</sub></td>
+<td width="50%"><img src="images/postgres-clean.png" alt="pgAdmin showing the cleaned PostgreSQL users table — valid rows with md5 user_id"><br><sub><b>After</b> — the warehouse table: valid rows only, cast types, and a deterministic MD5 <code>user_id</code> in place of the natural key.</sub></td>
+</tr>
+</table>
+
+Three properties are worth noticing in that pair:
+
+- **Rejected-row provenance.** Failing rows go to a `rejects/` output carrying `rejection_reason`,
+  so any record missing from the warehouse is traceable to *why* — not merely absent.
+- **PII made explicit.** Direct identifiers (name, email, phone) are never stored as a key: the loaded
+  `user_id` is a deterministic MD5 pseudonym of `name || email || phone`. Fields are classified as
+  direct- or quasi-identifier at the data layer, and the data dictionary is generated from that
+  classification.
+- **The dictionary cannot drift.** CI runs `python scripts/data_contract.py --check` and fails the
+  build if [`docs/governance/DATA_DICTIONARY.md`](docs/governance/DATA_DICTIONARY.md) no longer matches
+  the declared rules.
+
+---
+
+## Data quality you can see
+
+Not *whether* the pipeline ran, but *how good the data was*. The Spark task emits `airflow.dq.*`
+gauges (accept rate, accepted/rejected counts, rejections by reason) through StatsD → Prometheus →
+a provisioned Grafana dashboard, and writes the same summary to the lake as `dq_report.json` where
+Athena can query its history.
+
+<table>
+<tr>
+<td width="50%"><img src="images/grafana-dashboard.png" alt="Grafana Pipeline Observability dashboard — accept-rate gauge, rejections by reason, per-task durations"><br><sub><b>Grafana — live</b>: the accept-rate gauge, rejections broken down by reason, and per-task / per-DAG-run durations, all provisioned as code.</sub></td>
+<td width="50%"><img src="images/athena-rejections.png" alt="Amazon Athena — rejections_by_reason query over the quality/rejects zones"><br><sub><b>Athena — historical</b>: <code>rejections_by_reason</code> as plain SQL over the <code>quality/</code> and <code>rejects/</code> zones, catalogued by the Glue crawler.</sub></td>
+</tr>
+</table>
+
+The same numbers in two places with two lifetimes: Grafana answers *how is the run doing right now*,
+Athena answers *how has quality moved across every run we ever kept*.
+
+---
+
+## Analytics and BI
+
+`run_dbt` builds the silver/marts layer — `stg_users` (a view adding `email_domain` and `age_band`)
+feeding `users_by_city` and `users_by_age_band` — and `run_dbt_test` runs the schema tests as a gate.
+A Streamlit app reads the marts, either live from PostgreSQL or from a self-contained demo dataset.
+
+<table>
+<tr>
+<td width="50%"><img src="images/postgres-marts.png" alt="PostgreSQL dbt mart (users_by_age_band / users_by_city) in pgAdmin"><br><sub><b>The marts</b> — <code>users_by_age_band</code> and <code>users_by_city</code>, built and tested by dbt in an isolated venv so its pins never clash with Airflow's.</sub></td>
+<td width="50%"><img src="images/streamlit-bi.png" alt="Streamlit Marts BI dashboard — age bands, email domains, top cities"><br><sub><b>The BI layer</b> — age bands, email domains and top cities over the warehouse; <code>make app</code> launches it on <code>:8501</code>.</sub></td>
+</tr>
+</table>
+
+---
+
+## The data lake
+
+Three date-partitioned zones — `raw/`, `rejects/` and `quality/` — give an auditable history rather
+than a single overwritten file. The raw zone is governed by a Terraform lifecycle rule
+(`expire-raw-zone`, default 30 days) so an every-run history does not grow unbounded.
+
+![AWS S3 console — raw/ rejects/ quality/ zones with dt=<date> partitions](images/s3-zones.png)
+
+<sub><b>The lake, per run</b> — <code>raw/dt=&lt;ds&gt;/</code> holds what arrived, <code>rejects/dt=&lt;ds&gt;/</code> what was refused and why, <code>quality/dt=&lt;ds&gt;/</code> the run's quality summary. Glue catalogues all three so Athena reads them as tables.</sub>
+
+---
+
+## Infrastructure — two planes
+
+The **control plane** (provisioning) and the **data plane** (running the ETL) are deliberately
+separate: they have different lifecycles, different credentials and different triggers. Terraform and
+GitHub Actions provision; Airflow runs. The ETL is never executed from CI.
 
 ```mermaid
 flowchart LR
@@ -159,263 +249,206 @@ flowchart LR
     TF --> BUCKET & IAM & GLUE & ATHENA
 ```
 
-> The ETL itself is **not** run from GitHub — that is Airflow's job (the data plane).
-> GitHub provisions/deploys infra; Airflow runs the pipeline.
+Every PR touching `infra/terraform/**` gets a read-only `plan`; the real `apply` is a manual
+*Run workflow* button gated by the `production` environment's approval.
+
+## Security and IAM
+
+The pipeline's AWS identity is managed by Terraform ([`infra/terraform/iam.tf`](infra/terraform/iam.tf)) —
+it is never created by hand.
+
+- **Least-privilege pipeline user.** Its policy allows only `s3:ListBucket` on the data-lake bucket
+  and `s3:GetObject` / `s3:PutObject` on its objects. No `CreateBucket`, no `DeleteObject`, no access
+  to anything else.
+- **Two distinct identities.** The *pipeline* user (reads/writes objects) is separate from the
+  *deployer* role (provisions infrastructure). Neither is ever reused for the other's job.
+- **No stored keys in CI.** The Terraform workflow authenticates via **OIDC** against a deployer role
+  created by the one-time bootstrap. Its trust policy uses `StringEquals` on exactly three subjects —
+  `pull_request`, `ref:refs/heads/main` and `environment:production` — rather than the usual
+  `repo:<repo>:*`, so a workflow on a feature branch is refused by AWS, not merely by convention.
+- **Secret scanning.** `gitleaks` runs on every push and pull request, over the **full git history**.
+- **Loopback only.** Every published port in `docker-compose.yml` is bound to `127.0.0.1`, so the
+  local stack is not reachable from the network even on an untrusted one.
+
+Access keys for local runs come from `terraform output pipeline_access_key_id` /
+`pipeline_secret_access_key` and live only in the gitignored `.env`.
 
 ---
 
-## 🗄️ Database Architecture: Local vs Production Mindset
+## Quickstart
 
-For this project, we spin up a **single PostgreSQL container** acting as a unified database instance. However, inside this instance, we create two completely isolated logical databases to simulate a real-world enterprise environment:
+Requires Docker + Docker Compose, Python 3.12 for local development, and an AWS account with
+Terraform and the AWS CLI for the cloud side.
 
-1. **POSTGRES_DB (airflow):** Dedicated solely to Airflow's internal metadata (DAG runs, task states, triggers).
-2. **TARGET_DB (user_data):** Our analytics data warehouse where the cleaned Spark data is loaded.
-
-> **Why this design?**
-> * **Local Efficiency:** Running one Postgres container saves RAM and CPU on local machines compared to spinning up two heavy database servers.
-> * **Production Ready:** In a real cloud production environment (e.g., AWS RDS), these two would be **physically separated servers with different endpoints and credentials** for maximum security and performance isolation. If you want to move to production, you just change the `DB_HOST` in the `.env` file—no code changes required!
-
----
-
-## 🔐 Security & AWS IAM Configuration
-
-The pipeline's AWS identity is **managed by Terraform** (`infra/terraform/iam.tf`) — you don't create it by hand:
-
-* **Dedicated least-privilege IAM user:** Terraform creates a user whose policy allows *only* `s3:ListBucket` on the data-lake bucket and `s3:GetObject`/`s3:PutObject` on its objects — no `CreateBucket`, no `DeleteObject`, no access to anything else.
-* **Access keys as outputs:** `terraform output pipeline_access_key_id` / `pipeline_secret_access_key` — drop them into your `.env` (gitignored).
-* **No stored keys in CI:** the Terraform GitHub Actions workflow authenticates to AWS via **OIDC** (a deployer role created by the one-time bootstrap), so there are no long-lived AWS keys in GitHub.
-* **Two distinct identities:** the *pipeline* user (read/write objects) is separate from the *deployer* role (provisions infra) — never reuse one for the other.
-
----
-
-## 🗂️ Project Structure
-
-The repository is organized following standard Data Engineering folder conventions:
-```text
-contract-driven-data-pipeline/
-├── dags/             # Airflow DAG (TaskFlow API) — dag_id: s3-to-postgres-etl
-├── scripts/          # ETL stages: generator, data_contract, PySpark clean, loader
-├── dbt/              # dbt silver/marts layer (stg_users → users_by_city / _age_band)
-├── docs/governance/  # Generated DATA_DICTIONARY.md (contract + PII classification)
-├── infra/
-│   ├── docker-compose.yml         # the full local stack
-│   ├── Dockerfile.airflow/.spark  # arch-aware (amd64 + arm64) images
-│   ├── observability/             # Prometheus + Grafana (provisioned dashboard) + statsd mapping
-│   └── terraform/                 # IaC: bucket + lifecycle, least-priv IAM, Glue, Athena
-│       └── bootstrap/             # one-time: remote state + lock + GitHub OIDC role
-├── app/              # Streamlit marts BI dashboard (live Postgres or demo)
-├── tests/            # pytest unit tests (transform, contract, loader, DAG integrity)
-├── Makefile          # dev front door: make up / run / tf-apply / crawler / app ...
-├── .github/workflows/ ci.yml (lint+test+smoke+dag-validate) · terraform.yml (plan/apply, OIDC)
-├── data/  logs/      # runtime mounts (gitignored)
-├── .env / .env.example
-├── LICENSE
-└── README.md
-```
----
-
-## 🛠️ Tech Stack & Prerequisites
-
-| Technology | Purpose | Key Libraries Used |
-| :--- | :--- | :--- |
-| Apache Airflow 2.11 | Pipeline Orchestration | TaskFlow API, SparkSubmitOperator, S3Hook |
-| Apache Spark 3.5.2 | Distributed Processing & Cleaning | pyspark, pyarrow |
-| AWS S3 / Boto3 | Cloud Object Storage (data lake) | boto3, botocore |
-| PostgreSQL 16 | Target Relational Database | psycopg2-binary, execute_values |
-| dbt 1.8 (postgres) | Analytics / marts (silver/marts) | dbt-core, dbt-postgres |
-| Terraform | IaC: bucket, IAM, Glue, Athena (+ OIDC) | hashicorp/aws ~> 5 |
-| Glue + Athena | Catalog + SQL over the S3 lake | Glue crawler, Athena workgroup |
-| Prometheus + Grafana | Pipeline & data-quality observability | statsd-exporter, provisioned dashboards |
-| Streamlit | Marts BI dashboard | streamlit, plotly |
-| Docker & Compose | Multi-container Infrastructure | CeleryExecutor, Redis Broker |
-
-**Prerequisites:**
-* Docker and Docker Compose installed.
-* Python 3.12+ (for local development).
-* An AWS account + Terraform and AWS CLI (to provision the bucket/IAM/Glue/Athena).
-
----
-
-## ⚙️ Installation & Setup
-
-Follow these steps to run the pipeline locally on your machine:
-
-**1. Clone the repository**
 ```bash
+# 1. Clone
 git clone https://github.com/theofanis-tsakanikas/contract-driven-data-pipeline.git
 cd contract-driven-data-pipeline
+
+# 2. Provision the AWS side (once with admin creds, then the main config)
+make bootstrap-apply    # remote state bucket + DynamoDB lock + GitHub OIDC deployer role
+make tf-apply           # data-lake bucket + least-privilege IAM + Glue + Athena
+make tf-output          # prints S3_BUCKET_NAME + the pipeline AWS keys for .env
+
+# 3. Configure
+cp .env.example .env    # then fill in the AWS values from `make tf-output`
+
+# 4. Bring the stack up and run the pipeline
+make up                 # Airflow, Postgres, Spark, pgAdmin, Prometheus, Grafana
+make run                # trigger one DAG run (same as pressing ▶ in the UI)
+
+# 5. Explore the results
+make crawler            # catalogue the S3 lake so Athena can query it
+make app                # Streamlit marts dashboard → http://localhost:8501
 ```
 
-**2. Provision the AWS side with Terraform**
-One-time bootstrap (remote state + lock + GitHub OIDC role), then the main infra (bucket + IAM + Glue + Athena). See [infra/terraform/README.md](infra/terraform/README.md).
-```bash
-make bootstrap-apply          # once, with admin creds
-make tf-apply                 # creates bucket, least-priv IAM user, Glue, Athena
-make tf-output                # → S3_BUCKET_NAME + pipeline AWS keys for .env
-```
-> Prefer a button? Open a PR for `terraform plan`, then run the **Terraform** GitHub Action (`apply`, OIDC). The pipeline itself runs in Airflow, never from CI.
+Run `make` with no target to list every shortcut. The only `.env` values that need thought are
+`S3_BUCKET_NAME` (globally unique), the two `AWS_*` keys, and `N_DIRTY_RECORDS` (default 1000 — lower
+it for a quicker demo). Everything else has a working default in
+[`.env.example`](.env.example); passwords there are `change_me` placeholders and should be changed
+before any shared environment.
 
-**3. Configure Environment Variables**
-Create a `.env` at the repo root (copy from `.env.example`); fill the AWS values from `make tf-output`:
-
-```bash
-# === 🗄️ PostgreSQL Instance Settings (Database) ===
-DB_USER=your_db_user
-DB_PASS=your_db_password
-DB_HOST=airflow-docker-postgres-1
-DB_PORT=5432
-
-# === 🎯 Databases ===
-POSTGRES_DB=airflow           # Airflow Internal Metadata
-TARGET_DB=user_data           # Your cleaned analytics data
-DEFAULT_DB=postgres
-
-# === 🌐 Airflow Web UI Admin ===
-AIRFLOW_ADMIN_USER=your_web_admin_user
-AIRFLOW_ADMIN_PASSWORD=your_web_admin_password
-AIRFLOW_ADMIN_EMAIL=admin@example.com
-
-# === 📊 PgAdmin UI Credentials ===
-PGADMIN_MAIL=admin@example.com
-PGADMIN_PASS=your_pgadmin_password
-
-# === 📈 Grafana UI (optional; defaults admin/admin) ===
-GRAFANA_USER=admin
-GRAFANA_PASS=your_grafana_password
-
-# === ☁️ AWS S3 Configuration ===
-AWS_ACCESS_KEY_ID=YOUR_AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY=YOUR_AWS_SECRET_ACCESS_KEY
-AWS_DEFAULT_REGION=eu-central-1
-S3_BUCKET_NAME=your-s3-bucket-name
-# Fallback key — the DAG overrides this per run with raw/dt=<ds>/dirty-data.csv
-S3_FILE_KEY=raw/dirty-data.csv
-
-# === 📂 Local Staging Paths ===
-# N_DIRTY_RECORDS = how many rows ingestion generates (default 1000; lower for a quicker demo)
-N_DIRTY_RECORDS=1000
-LOCAL_DIRTY_PATH=/opt/airflow/data/dirty_data.csv
-LOCAL_CLEAN_FOLDER=/opt/airflow/data/clean_data
-LOCAL_CLEAN_PATH=/opt/airflow/data/clean_data.csv
-# Rejected rows (with rejection_reason) + the per-run data-quality summary
-LOCAL_REJECTS_PATH=/opt/airflow/data/rejected_data.csv
-DQ_REPORT_PATH=/opt/airflow/data/dq_report.json
-
-# === 🐳 Docker Container Permissions ===
-AIRFLOW_UID=1000
-AIRFLOW_GID=0
-```
-
-**4. Build and Spin Up the Stack**
-```bash
-make up          # = docker compose --env-file .env -f infra/docker-compose.yml up --build -d
-```
-
-*Note: The init.sh entrypoint automatically runs `airflow db init`, creates the Airflow admin user from your `.env`, and sets up healthchecks.*
-
-**5. Run the pipeline**
-In the Airflow UI (http://localhost:8088) enable the DAG `s3-to-postgres-etl` and click ▶ — or `make run`. Then explore the results:
-```bash
-make crawler     # catalog the S3 lake so Athena can query it
-make app         # launch the Streamlit marts dashboard (http://localhost:8501)
-```
-> Run `make` with no target to see every shortcut.
-
----
-
-## 📊 ETL Pipeline Breakdown
-
-**1. Data Contract, Cleaning & Lineage (PySpark)**
-
-The transformation step enforces an **explicit, declared data contract** — a single source of truth (`scripts/data_contract.py`) that the accept filter, the rejection reasons, the PII classification, and the generated [data dictionary](docs/governance/DATA_DICTIONARY.md) are all built from, so they can never disagree:
-
-* **Schema Enforcement:** Uses StructType to force strict data types upon reading the CSV file.
-* **Declared validation rules** (from the contract): non-empty name/city, regex-validated email, Greek mobile (`69` + 8 digits), 5-digit zip code, and adult age `[18, 99]`.
-* **Rejected-row provenance (lineage):** Failing rows are no longer silently dropped — they are **quarantined** to a rejects output tagged with the first rule they violated (`rejection_reason`), so any record that never reached the warehouse is traceable to *why*.
-* **Per-run data-quality report:** Every run emits an accept-rate + rejections-by-reason summary (`dq_report.json`), logged in the Airflow task — you can *see* the data quality, not just trust it.
-* **PII handling, made explicit:** Direct identifiers (name, email, phone) are never stored as a natural key — the loaded `user_id` is a deterministic **MD5 pseudonym** of `name || email || phone`. Fields are classified (direct- vs quasi-identifier) at the data layer; the [data dictionary](docs/governance/DATA_DICTIONARY.md) is generated from the contract and CI fails if it drifts.
-* **File I/O & Sharding Management:** Uses coalesce(1) to produce a single unified output CSV for both the cleaned and the quarantined data.
-
-**2. PostgreSQL Bulk Ingestion**
-Instead of iterative INSERT statements, the loading script uses psycopg2's cursor extension for optimal performance using execute_values. It uses an ON CONFLICT (user_id) DO NOTHING logic to avoid duplicate entries.
-
----
-
-## 📈 Monitoring UIs
-
-Once docker-compose is up, you can monitor the setup using the following ports:
+**The UIs**
 
 | Service | URL | Credentials |
-| :--- | :--- | :--- |
-| **Airflow Webserver** | http://localhost:8088 | Defined in `.env` (Default: airflow / airflow) |
-| **Grafana** (pipeline + data-quality) | http://localhost:3000 | `GRAFANA_USER` / `GRAFANA_PASS` (Default: admin / admin) |
-| **Streamlit** (marts BI) | http://localhost:8501 | `make app` — no auth |
-| **pgAdmin** | http://localhost:5050 | Defined in `.env` (`PGADMIN_MAIL` / `PGADMIN_PASS`) |
-| **Prometheus** | http://localhost:9090 | No Authentication |
-| **Spark Master WebUI** | http://localhost:8080 | No Authentication (Local Testing) |
+|---|---|---|
+| Airflow | http://localhost:8088 | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
+| Grafana — pipeline + data quality | http://localhost:3000 | `GRAFANA_USER` / `GRAFANA_PASS` |
+| Streamlit — marts BI | http://localhost:8501 | `make app`, no auth |
+| pgAdmin | http://localhost:5050 | `PGADMIN_MAIL` / `PGADMIN_PASS` |
+| Prometheus | http://localhost:9090 | none |
+| Spark master | http://localhost:8080 | none (local only) |
 
-> Athena lives in the AWS Console (workgroup `s3-spark-pg-etl-wg`, database `s3_spark_pg_etl_lake`) — run `make crawler` first.
+Athena lives in the AWS console — workgroup `s3-spark-pg-etl-wg`, database `s3_spark_pg_etl_lake`,
+after `make crawler`.
 
-*Tip: Always use your `.env` file to change default passwords before deploying to any shared environment!*
+---
 
-## 📊 Pipeline Execution & Results
+## Testing
 
-A walkthrough of one real run, following the data from orchestration → cleaning →
-quality → analytics → observability.
+**54 tests** covering the pure logic: the contract's rules and PII classification, `clean_dataframe()`
+(what is accepted), `rejected_dataframe()` (that every rejected row carries the first rule it
+violated), `data_quality_report()`, the generator, the loader's edge cases, and DAG integrity.
 
-### 1 · Orchestration — the Airflow DAG
+```bash
+make test        # pytest — PySpark transform, contract, loader, generator (needs Java 17+)
+make lint        # ruff + the data-dictionary drift check
+```
 
-All five tasks (`run_ingestion → spark-clean-task → run_loading → run_dbt → run_dbt_test`)
-complete with the `success` state — one click in the UI runs the whole platform.
+47 of them run from a plain checkout; the 7 **DAG-integrity** tests need Airflow installed and run in
+their own CI job. The suite starts a local `SparkSession` — it needs **no** running containers, no
+Kafka, no AWS credentials, and never touches the cloud.
 
-![Airflow Graph view — all 5 ETL tasks green/success](images/airflow-dag.png)
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs four gates on every push and pull
+request: **lint** (ruff + `data_contract.py --check`), **test** (PySpark on Java 17), **smoke** (loads
+a CSV fixture into a real `postgres:16` service container and asserts the row count landed), and
+**dag-validate** (DagBag integrity with Airflow and its providers installed). A separate
+[`gitleaks.yml`](.github/workflows/gitleaks.yml) scans for secrets.
 
-### 2 · The contract at work — dirty → clean
+---
 
-The headline of the project: a declarative **data contract** validates every row.
-This run generated 1,000 rows (the default; set `N_DIRTY_RECORDS` lower for a quicker demo);
-only the valid ones pass (~16–19%), and the rest are **not lost** — each is quarantined with
-the rule it violated.
+## Repository layout
 
-**Before — raw, dirty data (Amazon Athena over S3):** whitespace, negative ages, invalid
-emails, empty fields.
+| Path | Purpose |
+|---|---|
+| [`dags/`](dags/) | The Airflow DAG (TaskFlow API) — `dag_id: s3-to-postgres-etl`, `schedule=None` |
+| [`scripts/`](scripts/) | ETL stages: generator, **`data_contract.py`** (the single source of truth), PySpark clean, loader |
+| [`dbt/`](dbt/) | Silver/marts layer — `stg_users` → `users_by_city`, `users_by_age_band` |
+| [`docs/adr/`](docs/adr/) | 7 decision records — what was chosen and what was rejected |
+| [`docs/governance/`](docs/governance/) | **Generated** `DATA_DICTIONARY.md` (contract + PII classification); CI `--check` keeps it in sync |
+| [`infra/`](infra/) | `docker-compose.yml`, arch-aware Airflow/Spark images, `observability/` (Prometheus + provisioned Grafana) |
+| [`infra/terraform/`](infra/terraform/) | IaC — bucket + lifecycle, least-privilege IAM, Glue, Athena; `bootstrap/` = state + OIDC role |
+| [`app/`](app/) | Streamlit marts BI dashboard (live PostgreSQL or self-contained demo) |
+| [`tests/`](tests/) | 54 pytest tests — transform, contract, loader, generator, DAG integrity |
+| [`.github/`](.github/) | `workflows/ci.yml` (4 gates) · `workflows/terraform.yml` (plan on PR, manual OIDC apply) · `workflows/gitleaks.yml` · `dependabot.yml` |
+| `data/`, `logs/` | Runtime mounts — gitignored |
 
-![Amazon Athena querying the raw S3 zone — dirty rows (bad emails, ages like -5/150, blanks)](images/athena-raw-dirty.png)
+---
 
-**After — clean, structured data (PostgreSQL via pgAdmin):** valid rows only, cast types,
-and a deterministic `user_id` MD5 pseudonym.
+## What this does not do
 
-![pgAdmin showing the cleaned PostgreSQL users table — valid rows with md5 user_id](images/postgres-clean.png)
+- **Spark stages through the local filesystem, not `s3a://` and JDBC.** Each stage downloads and
+  writes locally so the three ETL phases stay separately observable on a laptop. In a cloud
+  deployment Spark would read S3 directly and write over JDBC — the transform logic is unchanged, the
+  I/O wrapper is not.
+- **Spark runs in-process (`local[*]`) by default.** The standalone master/worker services exist but
+  are opt-in and need an amd64 host. Nothing here proves distributed execution.
+- **One PostgreSQL container hosts two logical databases** (`airflow` metadata and `user_data`
+  analytics). In production these would be separate servers with separate endpoints and credentials —
+  changing `DB_HOST` is the only code-free step, but that separation has not been exercised.
+- **The source data is synthetic.** Faker generates the dirty rows; there is no real upstream system,
+  and the ~16–19% accept rate is a property of the generator, not a measured production figure.
+- **The DAG has no schedule.** `schedule=None`, manual trigger only — there is no cron, no SLA, no
+  backfill story.
+- **The marts are minimal.** Two aggregate tables over one staging view. This demonstrates the
+  contract and the lineage, not analytics-engineering depth.
+- **The pipeline authenticates with a long-lived IAM access key**, and no image or dependency
+  vulnerability scanning runs in CI. These and six more are stated in full, each with the control a
+  deployment would use instead, in [SECURITY.md](SECURITY.md#known-limitations).
 
-### 3 · Data quality & observability
+---
 
-Not just *whether* the pipeline ran, but *how good the data was* — surfaced in Grafana
-(ops **and** data quality) and queryable in Athena over the lake.
+## Cost
 
-![Grafana "Pipeline Observability" dashboard — accept-rate gauge, rejections by reason, per-task durations](images/grafana-dashboard.png)
+**Effectively under $1/month at demo scale, and $0 when torn down.** The whole local stack — Airflow,
+Spark, PostgreSQL, Prometheus, Grafana, pgAdmin — runs in Docker on your machine and costs nothing.
 
-*Grafana — pipeline durations, task outcomes, and live data-quality metrics (accept rate, rejections by reason).*
+The AWS footprint is deliberately small and has no always-on compute:
 
-![Amazon Athena — rejections_by_reason query over the quality/rejects zones](images/athena-rejections.png)
+| Resource | What drives the cost |
+|---|---|
+| S3 data lake | A few MB per run across `raw/` + `rejects/` + `quality/`; the raw zone expires after 30 days by lifecycle rule |
+| Glue crawler | On demand only (`make crawler`), billed per DPU-hour with a 10-minute minimum |
+| Athena | Per TB scanned — fractions of a cent at this data size; query results expire on their own lifecycle rule |
+| IAM user / role, Athena workgroup | Free |
 
-*Athena `rejections_by_reason` — SQL straight over the S3 data-quality zone (cataloged by Glue).*
+`terraform destroy` in [`infra/terraform/`](infra/terraform/) returns it to zero; the bootstrap layer
+(state bucket, lock table, OIDC role) is intentionally kept.
 
-### 4 · Analytics & BI
+---
 
-The dbt silver/marts layer, and a Streamlit dashboard over them.
+## Decisions
 
-![PostgreSQL dbt mart (users_by_age_band / users_by_city) in pgAdmin](images/postgres-marts.png)
+Seven decision records in [`docs/adr/`](docs/adr/) — what was chosen and, more usefully, what was
+rejected and why.
 
-*dbt marts in PostgreSQL — `users_by_age_band` and `users_by_city`, built and tested by dbt.*
+| | Decision | Rejected |
+|---|---|---|
+| [0001](docs/adr/0001-one-declared-data-contract.md) | One declared contract drives validation, rejection reasons, PII classification and the data dictionary | Great Expectations / Soda · documentation by convention |
+| [0002](docs/adr/0002-quarantine-rejected-rows.md) | Rejected rows are quarantined with the rule they violated, never dropped | Fail the run on bad data · log-and-move-on |
+| [0003](docs/adr/0003-md5-surrogate-key.md) | An MD5 surrogate key, so no direct identifier is ever a primary key | Email as PK · UUID (breaks idempotency) · HMAC (needs a managed key) |
+| [0004](docs/adr/0004-terraform-provisions-the-bucket.md) | Terraform creates the bucket; the pipeline holds no `s3:CreateBucket` and no `s3:DeleteObject` | `create_bucket()` at runtime · a console-created bucket |
+| [0005](docs/adr/0005-control-plane-and-data-plane-are-separate.md) | Terraform provisions, Airflow runs; the ETL is never triggered from CI | ETL in GitHub Actions · apply-on-merge · a cron schedule |
+| [0006](docs/adr/0006-in-process-spark-by-default.md) | In-process `local[*]` Spark by default; the standalone cluster is opt-in | Cluster as default (fails on arm64) · QEMU emulation |
+| [0007](docs/adr/0007-dbt-in-an-isolated-venv.md) | dbt in its own virtualenv, invoked by absolute path | `dbt-postgres` in the Airflow requirements · a separate container · Cosmos |
 
-![Streamlit Marts BI dashboard — age bands, email domains, top cities](images/streamlit-bi.png)
+Two choices were deliberately **not** given an ADR — the single Postgres container hosting two logical
+databases, and `coalesce(1)` on the outputs. Both are local conveniences without a real trade-off;
+[`docs/adr/README.md`](docs/adr/README.md) says so rather than padding the ledger.
 
-*Streamlit — business-ready marts (age bands, email domains, top cities) over the warehouse.*
+One more, recorded here because it is about the repository rather than the design: the `dag_id` and
+`project_name` still say `s3-spark-pg-etl` after the rename, because renaming them would destroy and
+recreate the live bucket, IAM user, crawler and workgroup for a cosmetic gain.
 
-### 5 · The data lake (S3 zones)
+---
 
-Date-partitioned `raw/`, `rejects/`, and `quality/` zones — auditable history, governed by
-a lifecycle rule.
+## Docs
 
-![AWS S3 console — raw/ rejects/ quality/ zones with dt=<date> partitions](images/s3-zones.png)
+[DATA_DICTIONARY](docs/governance/DATA_DICTIONARY.md) — generated from the contract, CI-checked ·
+[docs/adr/](docs/adr/) — 7 decision records ·
+[infra/terraform/README](infra/terraform/README.md) — bootstrap, backend and the OIDC apply button ·
+[SECURITY](SECURITY.md) · [CHANGELOG](CHANGELOG.md)
 
+Engineering reference — service ports, connections-as-code, known failure modes and gotchas — is in
+[`CLAUDE.md`](CLAUDE.md).
+
+## Security
+
+The hardened controls, the eight known limitations and what a real deployment would do instead:
+[SECURITY.md](SECURITY.md). The short version — two IAM identities that are never interchanged, no
+long-lived AWS key in CI, gitleaks over the full history, every local port bound to loopback, and an
+honest statement that the MD5 key is pseudonymisation rather than anonymisation.
+
+## License
+
+[MIT](LICENSE) © 2026 Theofanis Tsakanikas
