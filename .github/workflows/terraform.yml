@@ -4,6 +4,15 @@ name: Terraform
 # Airflow). PRs touching the Terraform get a read-only `plan`; the actual `apply`
 # is the manual "Run workflow" button, gated by the `production` environment's
 # approval. Auth is GitHub OIDC → AWS role (no stored AWS keys).
+#
+# The syntax gates (fmt + validate) run OFFLINE — no credentials, no backend — so
+# a pull request is always checked. The cloud steps are gated on the repository
+# variables below being present: when the estate is torn down (its normal resting
+# state) the job reports what is missing with a ::notice:: and exits 0, rather than
+# failing red and training everyone to ignore a red check.
+#
+#   Variables: AWS_REGION · AWS_DEPLOY_ROLE_ARN · TF_STATE_BUCKET · TF_LOCK_TABLE
+#              DATA_LAKE_BUCKET_NAME
 
 on:
   pull_request:
@@ -38,22 +47,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+
+      # --- Offline gates: no credentials, no backend, always run ---
+      - name: Format check
+        run: terraform fmt -check -recursive
+      - name: Init (offline — providers only)
+        run: terraform init -backend=false
+      - name: Validate
+        run: terraform validate
+
+      # --- Cloud steps: only when the deploy variables are configured ---
+      - name: Are the deploy variables configured?
+        id: cfg
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE }}
+          DATA_LAKE_BUCKET_NAME: ${{ vars.DATA_LAKE_BUCKET_NAME }}
+        run: |
+          missing=""
+          for v in AWS_REGION AWS_DEPLOY_ROLE_ARN TF_STATE_BUCKET TF_LOCK_TABLE DATA_LAKE_BUCKET_NAME; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Terraform plan skipped::fmt and validate passed. The plan needs a live estate; these repository variables are unset:$missing. Set them under Settings → Secrets and variables → Actions → Variables after running the one-time bootstrap."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.cfg.outputs.ready == 'true'
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-      - uses: hashicorp/setup-terraform@v3
-      - name: Format check
-        run: terraform fmt -check -recursive
       - name: Init
+        if: steps.cfg.outputs.ready == 'true'
         run: |
-          terraform init \
+          terraform init -reconfigure \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
             -backend-config="region=${{ vars.AWS_REGION }}" \
             -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}"
-      - name: Validate
-        run: terraform validate
       - name: Plan
+        if: steps.cfg.outputs.ready == 'true'
         run: terraform plan -input=false
 
   apply:
@@ -64,6 +101,24 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+
+      # An apply with no estate to apply to is a mistake, not a no-op — fail loudly.
+      - name: Require the deploy variables
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE }}
+          DATA_LAKE_BUCKET_NAME: ${{ vars.DATA_LAKE_BUCKET_NAME }}
+        run: |
+          missing=""
+          for v in AWS_REGION AWS_DEPLOY_ROLE_ARN TF_STATE_BUCKET TF_LOCK_TABLE DATA_LAKE_BUCKET_NAME; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Apply refused::Unset repository variables:$missing. Run the one-time bootstrap (infra/terraform/bootstrap) and set them before applying."
+            exit 1
+          fi
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
