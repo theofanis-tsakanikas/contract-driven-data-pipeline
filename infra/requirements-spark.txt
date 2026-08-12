@@ -8,7 +8,7 @@ botocore==1.42.73
 
 # --- Data Processing (pinned to match the Airflow image versions!) ---
 pandas==2.1.4
-numpy==1.26.4
+numpy==2.5.1
 
 # --- Database Connectors & Utilities ---
 redis>=5.0.8
