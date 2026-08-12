@@ -46,7 +46,7 @@ jobs:
     if: github.event_name == 'pull_request' || inputs.action == 'plan'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v3
 
       # --- Offline gates: no credentials, no backend, always run ---
@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # An apply with no estate to apply to is a mistake, not a no-op — fail loudly.
       - name: Require the deploy variables
