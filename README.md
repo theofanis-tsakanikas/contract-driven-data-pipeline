@@ -426,8 +426,9 @@ Skip it and this project costs **cents**. `terraform destroy` in [`infra/terrafo
 returns it to zero; the bootstrap layer (state bucket, lock table, OIDC role) is a few cents and is
 kept deliberately.
 
-*Rates are list prices and change — see [the portfolio cost model](https://github.com/theofanis-tsakanikas)
-for the shared assumptions. Verify before quoting.*
+*Every line here is under $1.50, so none of these rates was re-verified in the 2026-08-12 price check
+that corrected the other projects in this portfolio — S3, Glue and Athena list prices are long-stable
+and nothing in this table is sensitive to a few percent either way. Verify before quoting.*
 
 ---
 
