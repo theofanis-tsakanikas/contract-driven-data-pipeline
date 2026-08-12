@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       # Spark 3.5.2 officially supports Java 17; this matches the version the
       # PySpark unit tests were validated against.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
